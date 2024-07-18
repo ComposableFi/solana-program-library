@@ -1,15 +1,13 @@
 //! Instruction types
 
 use {
-    crate::{check_program_account, error::TokenError},
-    solana_program::{
+    crate::{check_program_account, error::TokenError}, solana_program::{
         instruction::{AccountMeta, Instruction},
         program_error::ProgramError,
         program_option::COption,
         pubkey::Pubkey,
         sysvar,
-    },
-    std::{convert::TryInto, mem::size_of},
+    }, std::{convert::TryInto, mem::size_of}
 };
 
 /// Minimum number of multisignature signers (min N)
@@ -414,6 +412,22 @@ pub enum TokenInstruction<'a> {
         /// The freeze authority/multisignature of the mint.
         freeze_authority: COption<Pubkey>,
     },
+    /// Like [`InitializeMint2`], but does not require the Rent sysvar to be
+    /// provided
+    ///
+    /// Accounts expected by this instruction:
+    ///
+    ///   0. `[writable]` The mint to initialize.
+    InitializeMint2WithRebasing {
+        /// Number of base 10 digits to the right of the decimal place.
+        decimals: u8,
+        /// The authority/multisignature to mint tokens.
+        mint_authority: Pubkey,
+        /// The freeze authority/multisignature of the mint.
+        freeze_authority: COption<Pubkey>,
+        /// The initial share price of the mint.
+        share_price: u64
+    },
     /// Gets the required size of an account for the given mint as a
     /// little-endian `u64`.
     ///
@@ -468,6 +482,21 @@ pub enum TokenInstruction<'a> {
     UiAmountToAmount {
         /// The ui_amount of tokens to reformat.
         ui_amount: &'a str,
+    },
+    /// Convert a UiAmount of tokens to a little-endian `u64` raw Amount, using
+    /// the given mint. In this version of the program, the mint can only
+    /// specify the number of decimals.
+    ///
+    /// Return data can be fetched using `sol_get_return_data` and deserializing
+    /// the return data as a little-endian `u64`.
+    ///
+    /// Accounts expected by this instruction:
+    ///
+    ///   0. `[writable]` The mint to update the share price for
+    ///   1. `[signer]` The mint's minting authority.
+    UpdateSharePrice {
+        /// The new share price of the mint.
+        share_price: u64,
     },
     // Any new variants also need to be added to program-2022 `TokenInstruction`, so that the
     // latter remains a superset of this instruction set. New variants also need to be added to
@@ -575,6 +604,22 @@ impl<'a> TokenInstruction<'a> {
                 let ui_amount = std::str::from_utf8(rest).map_err(|_| InvalidInstruction)?;
                 Self::UiAmountToAmount { ui_amount }
             }
+            25 => {
+                let (&decimals, rest) = rest.split_first().ok_or(InvalidInstruction)?;
+                let (mint_authority, rest) = Self::unpack_pubkey(rest)?;
+                let (freeze_authority, rest) = Self::unpack_pubkey_option(rest)?;
+                let (share_price, _rest) = Self::unpack_u64(rest)?;
+                Self::InitializeMint2WithRebasing {
+                    mint_authority,
+                    freeze_authority,
+                    decimals,
+                    share_price
+                }
+            }
+            26 => {
+                let (share_price, _rest) = Self::unpack_u64(rest)?;
+                Self::UpdateSharePrice { share_price }
+            }
             _ => return Err(TokenError::InvalidInstruction.into()),
         })
     }
@@ -672,6 +717,18 @@ impl<'a> TokenInstruction<'a> {
                 buf.extend_from_slice(mint_authority.as_ref());
                 Self::pack_pubkey_option(freeze_authority, &mut buf);
             }
+            &Self::InitializeMint2WithRebasing {
+                ref mint_authority,
+                ref freeze_authority,
+                decimals,
+                share_price
+            } => {
+                buf.push(25);
+                buf.push(decimals);
+                buf.extend_from_slice(mint_authority.as_ref());
+                Self::pack_pubkey_option(freeze_authority, &mut buf);
+                buf.extend_from_slice(&share_price.to_le_bytes());
+            }
             &Self::GetAccountDataSize => {
                 buf.push(21);
             }
@@ -685,6 +742,10 @@ impl<'a> TokenInstruction<'a> {
             Self::UiAmountToAmount { ui_amount } => {
                 buf.push(24);
                 buf.extend_from_slice(ui_amount.as_bytes());
+            }
+            Self::UpdateSharePrice { share_price } => {
+                buf.push(26);
+                buf.extend_from_slice(&share_price.to_le_bytes());
             }
         };
         buf
@@ -816,6 +877,34 @@ pub fn initialize_mint2(
         mint_authority: *mint_authority_pubkey,
         freeze_authority,
         decimals,
+    }
+    .pack();
+
+    let accounts = vec![AccountMeta::new(*mint_pubkey, false)];
+
+    Ok(Instruction {
+        program_id: *token_program_id,
+        accounts,
+        data,
+    })
+}
+
+/// Creates a `InitializeMint2` instruction.
+pub fn initialize_mint2_with_rebasing(
+    token_program_id: &Pubkey,
+    mint_pubkey: &Pubkey,
+    mint_authority_pubkey: &Pubkey,
+    freeze_authority_pubkey: Option<&Pubkey>,
+    decimals: u8,
+    initial_share_price: u64
+) -> Result<Instruction, ProgramError> {
+    check_program_account(token_program_id)?;
+    let freeze_authority = freeze_authority_pubkey.cloned().into();
+    let data = TokenInstruction::InitializeMint2WithRebasing {
+        mint_authority: *mint_authority_pubkey,
+        freeze_authority,
+        decimals,
+        share_price: initial_share_price
     }
     .pack();
 
@@ -1428,6 +1517,32 @@ pub fn ui_amount_to_amount(
         program_id: *token_program_id,
         accounts: vec![AccountMeta::new_readonly(*mint_pubkey, false)],
         data: TokenInstruction::UiAmountToAmount { ui_amount }.pack(),
+    })
+}
+
+/// Creates a `UiAmountToAmount` instruction
+pub fn update_share_price(
+    token_program_id: &Pubkey,
+    mint_pubkey: &Pubkey,
+    owner_pubkey: &Pubkey,
+    signer_pubkeys: &[&Pubkey],
+    new_share_price: u64,
+) -> Result<Instruction, ProgramError> {
+    check_program_account(token_program_id)?;
+
+    let mut accounts = vec![AccountMeta::new(*mint_pubkey, false)];
+    // accounts.push(AccountMeta::new_readonly(
+    //     *owner_pubkey,
+    //     signer_pubkeys.is_empty(),
+    // ));
+    for signer_pubkey in signer_pubkeys.iter() {
+        accounts.push(AccountMeta::new_readonly(**signer_pubkey, true));
+    }
+
+    Ok(Instruction {
+        program_id: *token_program_id,
+        accounts,
+        data: TokenInstruction::UpdateSharePrice { share_price: new_share_price }.pack()
     })
 }
 

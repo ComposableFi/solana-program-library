@@ -10,6 +10,7 @@ members = [
   "stake-pool/program",
   "token/program",
   "token/program-2022",
+  "single-pool/program"
 ]
 exclude = [
   "account-compression/"
@@ -25,3 +26,4 @@ spl_governance_chat = "gCHAtYKrUUktTVzE4hEnZdLV4LXrdBf6Hh9qMaJALET"
 spl_stake_pool = "SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy"
 spl_token = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 spl_token_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+spl-single-pool = "SVSPxpvHdN29nkVg9rPapPNDddN5DipNLRUFhyjFThE"

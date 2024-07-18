@@ -58,6 +58,90 @@ async fn initialize_mint() {
 }
 
 #[tokio::test]
+async fn initialize_mint_with_rebasing() {
+    let mut pt = ProgramTest::new("spl_token", id(), processor!(Processor::process));
+    pt.set_compute_max_units(5_000); // last known 2252
+    let (mut banks_client, payer, recent_blockhash) = pt.start().await;
+
+    let owner_key = Pubkey::new_unique();
+    let mint = Keypair::new();
+    let decimals = 9;
+    let share_price: u64 = 1100000000;
+
+    let rent = banks_client.get_rent().await.unwrap();
+    let mint_rent = rent.minimum_balance(Mint::LEN);
+    let transaction = Transaction::new_signed_with_payer(
+        &[system_instruction::create_account(
+            &payer.pubkey(),
+            &mint.pubkey(),
+            mint_rent,
+            Mint::LEN as u64,
+            &id(),
+        )],
+        Some(&payer.pubkey()),
+        &[&payer, &mint],
+        recent_blockhash,
+    );
+    banks_client.process_transaction(transaction).await.unwrap();
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction::initialize_mint2_with_rebasing(
+            &id(),
+            &mint.pubkey(),
+            &owner_key,
+            None,
+            decimals,
+            share_price,
+        )
+        .unwrap()],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+    banks_client.process_transaction(transaction).await.unwrap();
+}
+
+#[tokio::test]
+async fn update_share_price() {
+    let mut pt = ProgramTest::new("spl_token", id(), processor!(Processor::process));
+    pt.set_compute_max_units(5_000); // last known 2252
+    let (mut banks_client, payer, recent_blockhash) = pt.start().await;
+
+    let owner = Keypair::new();
+    let mint = Keypair::new();
+    let decimals = 9;
+    let initial_share_price: u64 = 1100000000;
+    let updated_share_price: u64 = 1200000000;
+
+    action::create_rebasing_mint(
+        &mut banks_client,
+        &payer,
+        recent_blockhash,
+        &mint,
+        &owner.pubkey(),
+        decimals,
+        initial_share_price,
+    )
+    .await
+    .unwrap();
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction::update_share_price(
+            &id(),
+            &mint.pubkey(),
+            &owner.pubkey(),
+            &[&owner.pubkey()],
+            updated_share_price,
+        )
+        .unwrap()],
+        Some(&payer.pubkey()),
+        &[&owner, &payer],
+        recent_blockhash,
+    );
+    banks_client.process_transaction(transaction).await.unwrap();
+}
+
+#[tokio::test]
 async fn initialize_account() {
     let mut pt = ProgramTest::new("spl_token", id(), processor!(Processor::process));
     pt.set_compute_max_units(6_000); // last known 3284

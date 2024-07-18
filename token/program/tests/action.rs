@@ -46,6 +46,45 @@ pub async fn create_mint(
     Ok(())
 }
 
+pub async fn create_rebasing_mint(
+    banks_client: &mut BanksClient,
+    payer: &Keypair,
+    recent_blockhash: Hash,
+    pool_mint: &Keypair,
+    manager: &Pubkey,
+    decimals: u8,
+    initial_share_price: u64,
+) -> Result<(), TransportError> {
+    let rent = banks_client.get_rent().await.unwrap();
+    let mint_rent = rent.minimum_balance(Mint::LEN);
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[
+            system_instruction::create_account(
+                &payer.pubkey(),
+                &pool_mint.pubkey(),
+                mint_rent,
+                Mint::LEN as u64,
+                &id(),
+            ),
+            instruction::initialize_mint2_with_rebasing(
+                &id(),
+                &pool_mint.pubkey(),
+                manager,
+                None,
+                decimals,
+                initial_share_price,
+            )
+            .unwrap(),
+        ],
+        Some(&payer.pubkey()),
+        &[payer, pool_mint],
+        recent_blockhash,
+    );
+    banks_client.process_transaction(transaction).await?;
+    Ok(())
+}
+
 pub async fn create_account(
     banks_client: &mut BanksClient,
     payer: &Keypair,
