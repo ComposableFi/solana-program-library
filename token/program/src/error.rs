@@ -78,6 +78,12 @@ pub enum TokenError {
     /// Instruction does not support non-native tokens
     #[error("Instruction does not support non-native tokens")]
     NonNativeNotSupported,
+    /// The token mint is not a rebasing token
+    #[error("The token mint is not a rebasing token")]
+    NotRebasingMint,
+    /// The share price of the token can only increase
+    #[error("Share Price Can Only Increase")]
+    SharePriceCanOnlyIncrease
 }
 impl From<TokenError> for ProgramError {
     fn from(e: TokenError) -> Self {
@@ -133,6 +139,12 @@ impl PrintProgramError for TokenError {
             }
             TokenError::NonNativeNotSupported => {
                 msg!("Error: Instruction does not support non-native tokens")
+            }
+            TokenError::NotRebasingMint => {
+                msg!("Error: The token mint is not a rebasing token")
+            }
+            TokenError::SharePriceCanOnlyIncrease => {
+                msg!("Error: The share price of the token can only increase")
             }
         }
     }

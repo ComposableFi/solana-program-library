@@ -26,6 +26,8 @@ pub struct Mint {
     pub is_initialized: bool,
     /// Optional authority to freeze token accounts.
     pub freeze_authority: COption<Pubkey>,
+    /// Share price (can only increase)
+    pub share_price: COption<u64>
 }
 impl Sealed for Mint {}
 impl IsInitialized for Mint {
@@ -34,11 +36,11 @@ impl IsInitialized for Mint {
     }
 }
 impl Pack for Mint {
-    const LEN: usize = 82;
+    const LEN: usize = 94;
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let src = array_ref![src, 0, 82];
-        let (mint_authority, supply, decimals, is_initialized, freeze_authority) =
-            array_refs![src, 36, 8, 1, 1, 36];
+        let src = array_ref![src, 0, 94];
+        let (mint_authority, supply, decimals, is_initialized, freeze_authority, share_price) =
+            array_refs![src, 36, 8, 1, 1, 36, 12];
         let mint_authority = unpack_coption_key(mint_authority)?;
         let supply = u64::from_le_bytes(*supply);
         let decimals = decimals[0];
@@ -48,35 +50,40 @@ impl Pack for Mint {
             _ => return Err(ProgramError::InvalidAccountData),
         };
         let freeze_authority = unpack_coption_key(freeze_authority)?;
+        let share_price = unpack_coption_u64(share_price)?;
         Ok(Mint {
             mint_authority,
             supply,
             decimals,
             is_initialized,
             freeze_authority,
+            share_price,
         })
     }
     fn pack_into_slice(&self, dst: &mut [u8]) {
-        let dst = array_mut_ref![dst, 0, 82];
+        let dst = array_mut_ref![dst, 0, 94];
         let (
             mint_authority_dst,
             supply_dst,
             decimals_dst,
             is_initialized_dst,
             freeze_authority_dst,
-        ) = mut_array_refs![dst, 36, 8, 1, 1, 36];
+            share_price_dst,
+        ) = mut_array_refs![dst, 36, 8, 1, 1, 36, 12];
         let &Mint {
             ref mint_authority,
             supply,
             decimals,
             is_initialized,
             ref freeze_authority,
+            ref share_price
         } = self;
         pack_coption_key(mint_authority, mint_authority_dst);
         *supply_dst = supply.to_le_bytes();
         decimals_dst[0] = decimals;
         is_initialized_dst[0] = is_initialized as u8;
         pack_coption_key(freeze_authority, freeze_authority_dst);
+        pack_coption_u64(share_price, share_price_dst);
     }
 }
 
