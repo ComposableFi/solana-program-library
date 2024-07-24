@@ -30,11 +30,12 @@ impl Processor {
         mint_authority: Pubkey,
         freeze_authority: COption<Pubkey>,
         rent_sysvar_account: bool,
-        share_price: Option<u64>,
+        l1_token_supply: Option<u64>,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
         let mint_info = next_account_info(account_info_iter)?;
         let mint_data_len = mint_info.data_len();
+        msg!("Data length {}", mint_data_len);
         let rent = if rent_sysvar_account {
             Rent::from_account_info(next_account_info(account_info_iter)?)?
         } else {
@@ -54,7 +55,7 @@ impl Processor {
         mint.decimals = decimals;
         mint.is_initialized = true;
         mint.freeze_authority = freeze_authority;
-        mint.share_price = share_price.into();
+        mint.supply_on_l1 = l1_token_supply.into();
 
         Mint::pack(mint, &mut mint_info.data.borrow_mut())?;
 
@@ -95,13 +96,13 @@ impl Processor {
         )
     }
 
-    /// Processes an [InitializeMint2WithRebasing](enum.TokenInstruction.html) instruction.
+    /// Processes an [InitializeMint2WithRebasing](enum.TokenInstruction.html)
+    /// instruction.
     pub fn process_initialize_mint2_with_rebasing(
         accounts: &[AccountInfo],
         decimals: u8,
         mint_authority: Pubkey,
         freeze_authority: COption<Pubkey>,
-        share_price: u64,
     ) -> ProgramResult {
         Self::_process_initialize_mint(
             accounts,
@@ -109,7 +110,7 @@ impl Processor {
             mint_authority,
             freeze_authority,
             false,
-            Some(share_price),
+            Some(0),
         )
     }
 
@@ -845,7 +846,8 @@ impl Processor {
 
         let mint = Mint::unpack(&mint_info.data.borrow_mut())
             .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
-        let ui_amount = if let COption::Some(share) = mint.share_price {
+        let ui_amount = if let COption::Some(supply_on_l1) = mint.supply_on_l1 {
+            let share = supply_on_l1 / mint.supply;
             let amount = (share * amount) / 10_u64.pow(mint.decimals.into());
             amount_to_ui_amount_string_trimmed(amount, mint.decimals)
         } else {
@@ -856,7 +858,7 @@ impl Processor {
             "Amount to UI amount: {} original: {} with share price {:?}",
             ui_amount,
             amount,
-            mint.share_price
+            mint.supply_on_l1
         );
 
         set_return_data(&ui_amount.into_bytes());
@@ -876,7 +878,8 @@ impl Processor {
         let mint = Mint::unpack(&mint_info.data.borrow_mut())
             .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
         let amount = try_ui_amount_into_amount::<u64>(ui_amount.to_string(), mint.decimals)?;
-        let amount = if let COption::Some(share) = mint.share_price {
+        let amount = if let COption::Some(supply_on_l1) = mint.supply_on_l1 {
+            let share = supply_on_l1 / mint.supply;
             amount / share
         } else {
             amount
@@ -890,7 +893,7 @@ impl Processor {
             "Amount to UI amount: {} original: {} with share price {:?}",
             ui_amount,
             amount,
-            mint.share_price
+            mint.supply_on_l1
         );
 
         set_return_data(&(amount).to_le_bytes());
@@ -898,10 +901,10 @@ impl Processor {
     }
 
     /// Updates the share price of the token mint
-    pub fn process_update_share_price(
+    pub fn process_update_l1_token_supply(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
-        new_share_price: u64,
+        new_l1_token_supply: u64,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
         let mint_info = next_account_info(account_info_iter)?;
@@ -922,15 +925,19 @@ impl Processor {
             COption::None => return Err(TokenError::FixedSupply.into()),
         }
 
-        let share_price = mint.share_price.ok_or(TokenError::NotRebasingMint)?;
+        let l1_token_supply = mint.supply_on_l1.ok_or(TokenError::NotRebasingMint)?;
 
-        if new_share_price < share_price {
+        if new_l1_token_supply < l1_token_supply {
             return Err(TokenError::SharePriceCanOnlyIncrease.into());
         }
 
-        msg!("Updating value to {} from {}", new_share_price, share_price);
+        msg!(
+            "Updating value to {} from {}",
+            new_l1_token_supply,
+            l1_token_supply
+        );
 
-        mint.share_price = new_share_price.into();
+        mint.supply_on_l1 = new_l1_token_supply.into();
 
         Mint::pack(mint, &mut mint_info.data.borrow_mut())?;
 
@@ -962,7 +969,6 @@ impl Processor {
                 decimals,
                 mint_authority,
                 freeze_authority,
-                share_price,
             } => {
                 msg!("Instruction: InitializeMint2WithRebasing");
                 Self::process_initialize_mint2_with_rebasing(
@@ -970,7 +976,6 @@ impl Processor {
                     decimals,
                     mint_authority,
                     freeze_authority,
-                    share_price,
                 )
             }
             TokenInstruction::InitializeAccount => {
@@ -1068,9 +1073,9 @@ impl Processor {
                 msg!("Instruction: UiAmountToAmount");
                 Self::process_ui_amount_to_amount(program_id, accounts, ui_amount)
             }
-            TokenInstruction::UpdateSharePrice { share_price } => {
-                msg!("Instruction: UpdateSharePrice");
-                Self::process_update_share_price(program_id, accounts, share_price)
+            TokenInstruction::UpdateL1TokenSupply { l1_token_supply } => {
+                msg!("Instruction: UpdateL1TokenSupply");
+                Self::process_update_l1_token_supply(program_id, accounts, l1_token_supply)
             }
         }
     }
@@ -1292,7 +1297,7 @@ mod tests {
             decimals: 7,
             is_initialized: true,
             freeze_authority: COption::Some(Pubkey::new(&[2; 32])),
-            share_price: COption::None,
+            supply_on_l1: COption::None,
         };
         let mut packed = vec![0; Mint::get_packed_len() + 1];
         assert_eq!(
@@ -1309,7 +1314,8 @@ mod tests {
         let expect = vec![
             1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
             1, 1, 1, 1, 1, 1, 1, 42, 0, 0, 0, 0, 0, 0, 0, 7, 1, 1, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2,
-            2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+            2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0,
         ];
         assert_eq!(packed, expect);
         let unpacked = Mint::unpack(&packed).unwrap();
@@ -1529,7 +1535,6 @@ mod tests {
                 &owner_key,
                 Some(&owner_key),
                 2,
-                100,
             )
             .unwrap(),
             vec![&mut mint2_account],
@@ -1537,7 +1542,7 @@ mod tests {
         .unwrap();
         let mint = Mint::unpack_unchecked(&mint2_account.data).unwrap();
         assert_eq!(mint.freeze_authority, COption::Some(owner_key));
-        assert_eq!(mint.share_price, COption::Some(100));
+        assert_eq!(mint.supply_on_l1, COption::Some(0));
     }
 
     #[test]
@@ -1941,7 +1946,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_share_price() {
+    fn test_update_l1_token_supply() {
         let program_id = crate::id();
         let owner_key = Pubkey::new_unique();
         let mint_key = Pubkey::new_unique();
@@ -1990,7 +1995,6 @@ mod tests {
                 &owner_key,
                 Some(&owner_key),
                 2,
-                100,
             )
             .unwrap(),
             vec![&mut mint2_account],
@@ -1998,10 +2002,10 @@ mod tests {
         .unwrap();
         let mint = Mint::unpack_unchecked(&mint2_account.data).unwrap();
         assert_eq!(mint.freeze_authority, COption::Some(owner_key));
-        assert_eq!(mint.share_price, COption::Some(100));
+        assert_eq!(mint.supply_on_l1, COption::Some(0));
 
         do_process_instruction(
-            update_share_price(&program_id, &mint2_key, &owner_key, &[&owner_key], 110).unwrap(),
+            update_l1_token_supply(&program_id, &mint2_key, &[&owner_key], 110).unwrap(),
             vec![&mut mint2_account, &mut owner_acc],
         )
         .unwrap();
@@ -2009,7 +2013,7 @@ mod tests {
         assert_eq!(
             Err(TokenError::SharePriceCanOnlyIncrease.into()),
             do_process_instruction(
-                update_share_price(&program_id, &mint2_key, &owner_key, &[&owner_key], 90).unwrap(),
+                update_l1_token_supply(&program_id, &mint2_key, &[&owner_key], 90).unwrap(),
                 vec![&mut mint2_account, &mut owner_acc],
             )
         );
@@ -2017,7 +2021,7 @@ mod tests {
         assert_eq!(
             Err(TokenError::OwnerMismatch.into()),
             do_process_instruction(
-                update_share_price(&program_id, &mint2_key, &mint_key, &[&mint_key], 90).unwrap(),
+                update_l1_token_supply(&program_id, &mint2_key, &[&mint_key], 90).unwrap(),
                 vec![&mut mint2_account, &mut owner_acc],
             )
         );
@@ -2025,7 +2029,7 @@ mod tests {
         assert_eq!(
             Err(TokenError::NotRebasingMint.into()),
             do_process_instruction(
-                update_share_price(&program_id, &mint_key, &owner_key, &[&owner_key], 90).unwrap(),
+                update_l1_token_supply(&program_id, &mint_key, &[&owner_key], 90).unwrap(),
                 vec![&mut mint_account, &mut owner_acc],
             )
         );
@@ -3046,7 +3050,7 @@ mod tests {
                 decimals,
                 is_initialized: true,
                 freeze_authority: COption::None,
-                share_price: COption::None,
+                supply_on_l1: COption::None,
             }
         );
 

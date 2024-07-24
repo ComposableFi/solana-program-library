@@ -83,7 +83,7 @@ pub enum TokenError {
     NotRebasingMint,
     /// The share price of the token can only increase
     #[error("Share Price Can Only Increase")]
-    SharePriceCanOnlyIncrease
+    SharePriceCanOnlyIncrease,
 }
 impl From<TokenError> for ProgramError {
     fn from(e: TokenError) -> Self {

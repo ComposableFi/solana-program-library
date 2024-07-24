@@ -91,7 +91,6 @@ async fn initialize_mint_with_rebasing() {
             &owner_key,
             None,
             decimals,
-            share_price,
         )
         .unwrap()],
         Some(&payer.pubkey()),
@@ -102,7 +101,7 @@ async fn initialize_mint_with_rebasing() {
 }
 
 #[tokio::test]
-async fn update_share_price() {
+async fn update_l1_token_supply() {
     let mut pt = ProgramTest::new("spl_token", id(), processor!(Processor::process));
     pt.set_compute_max_units(5_000); // last known 2252
     let (mut banks_client, payer, recent_blockhash) = pt.start().await;
@@ -120,16 +119,14 @@ async fn update_share_price() {
         &mint,
         &owner.pubkey(),
         decimals,
-        initial_share_price,
     )
     .await
     .unwrap();
 
     let transaction = Transaction::new_signed_with_payer(
-        &[instruction::update_share_price(
+        &[instruction::update_l1_token_supply(
             &id(),
             &mint.pubkey(),
-            &owner.pubkey(),
             &[&owner.pubkey()],
             updated_share_price,
         )

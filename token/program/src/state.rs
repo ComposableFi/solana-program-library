@@ -26,8 +26,8 @@ pub struct Mint {
     pub is_initialized: bool,
     /// Optional authority to freeze token accounts.
     pub freeze_authority: COption<Pubkey>,
-    /// Share price (can only increase)
-    pub share_price: COption<u64>
+    /// total supply of tokens on l1 (should always be more than supply)
+    pub supply_on_l1: COption<u64>,
 }
 impl Sealed for Mint {}
 impl IsInitialized for Mint {
@@ -39,7 +39,7 @@ impl Pack for Mint {
     const LEN: usize = 94;
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let src = array_ref![src, 0, 94];
-        let (mint_authority, supply, decimals, is_initialized, freeze_authority, share_price) =
+        let (mint_authority, supply, decimals, is_initialized, freeze_authority, supply_on_l1) =
             array_refs![src, 36, 8, 1, 1, 36, 12];
         let mint_authority = unpack_coption_key(mint_authority)?;
         let supply = u64::from_le_bytes(*supply);
@@ -50,14 +50,14 @@ impl Pack for Mint {
             _ => return Err(ProgramError::InvalidAccountData),
         };
         let freeze_authority = unpack_coption_key(freeze_authority)?;
-        let share_price = unpack_coption_u64(share_price)?;
+        let supply_on_l1 = unpack_coption_u64(supply_on_l1)?;
         Ok(Mint {
             mint_authority,
             supply,
             decimals,
             is_initialized,
             freeze_authority,
-            share_price,
+            supply_on_l1,
         })
     }
     fn pack_into_slice(&self, dst: &mut [u8]) {
@@ -68,7 +68,7 @@ impl Pack for Mint {
             decimals_dst,
             is_initialized_dst,
             freeze_authority_dst,
-            share_price_dst,
+            supply_on_l1_dst,
         ) = mut_array_refs![dst, 36, 8, 1, 1, 36, 12];
         let &Mint {
             ref mint_authority,
@@ -76,14 +76,14 @@ impl Pack for Mint {
             decimals,
             is_initialized,
             ref freeze_authority,
-            ref share_price
+            ref supply_on_l1,
         } = self;
         pack_coption_key(mint_authority, mint_authority_dst);
         *supply_dst = supply.to_le_bytes();
         decimals_dst[0] = decimals;
         is_initialized_dst[0] = is_initialized as u8;
         pack_coption_key(freeze_authority, freeze_authority_dst);
-        pack_coption_u64(share_price, share_price_dst);
+        pack_coption_u64(supply_on_l1, supply_on_l1_dst);
     }
 }
 
@@ -367,11 +367,11 @@ mod tests {
 
     #[test]
     fn test_mint_unpack_from_slice() {
-        let src: [u8; 82] = [0; 82];
+        let src: [u8; 94] = [0; 94];
         let mint = Mint::unpack_from_slice(&src).unwrap();
         assert!(!mint.is_initialized);
 
-        let mut src: [u8; 82] = [0; 82];
+        let mut src: [u8; 94] = [0; 94];
         src[45] = 2;
         let mint = Mint::unpack_from_slice(&src).unwrap_err();
         assert_eq!(mint, ProgramError::InvalidAccountData);

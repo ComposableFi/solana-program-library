@@ -53,7 +53,6 @@ pub async fn create_rebasing_mint(
     pool_mint: &Keypair,
     manager: &Pubkey,
     decimals: u8,
-    initial_share_price: u64,
 ) -> Result<(), TransportError> {
     let rent = banks_client.get_rent().await.unwrap();
     let mint_rent = rent.minimum_balance(Mint::LEN);
@@ -73,7 +72,6 @@ pub async fn create_rebasing_mint(
                 manager,
                 None,
                 decimals,
-                initial_share_price,
             )
             .unwrap(),
         ],
