@@ -13,12 +13,13 @@ pub mod state;
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint;
 
-use std::str::FromStr;
-
 // Export current sdk types for downstream users building with a different sdk
 // version
 pub use solana_program;
-use solana_program::{entrypoint::ProgramResult, program_error::ProgramError, pubkey::Pubkey};
+use {
+    solana_program::{entrypoint::ProgramResult, program_error::ProgramError, pubkey::Pubkey},
+    std::str::FromStr,
+};
 
 /// Convert the UI representation of a token amount (using the decimals field
 /// defined in its mint) to the raw amount
@@ -60,7 +61,10 @@ pub fn amount_to_ui_amount_string_trimmed(amount: u64, decimals: u8) -> String {
 
 /// Try to convert a UI representation of a token amount to its raw amount using
 /// the given decimals field
-pub fn try_ui_amount_into_amount<T: FromStr>(ui_amount: String, decimals: u8) -> Result<T, ProgramError> {
+pub fn try_ui_amount_into_amount<T: FromStr>(
+    ui_amount: String,
+    decimals: u8,
+) -> Result<T, ProgramError> {
     let decimals = decimals as usize;
     let mut parts = ui_amount.split('.');
     // splitting a string, even an empty one, will always yield an iterator of
