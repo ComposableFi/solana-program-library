@@ -38,7 +38,7 @@ impl IsInitialized for Mint {
 impl Pack for Mint {
     const LEN: usize = 94;
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let src = array_ref![src, 0, 94];
+        let src = array_ref![src, 0, Self::LEN];
         let (mint_authority, supply, decimals, is_initialized, freeze_authority, supply_on_l1) =
             array_refs![src, 36, 8, 1, 1, 36, 12];
         let mint_authority = unpack_coption_key(mint_authority)?;
@@ -61,7 +61,7 @@ impl Pack for Mint {
         })
     }
     fn pack_into_slice(&self, dst: &mut [u8]) {
-        let dst = array_mut_ref![dst, 0, 94];
+        let dst = array_mut_ref![dst, 0, Self::LEN];
         let (
             mint_authority_dst,
             supply_dst,
@@ -367,11 +367,11 @@ mod tests {
 
     #[test]
     fn test_mint_unpack_from_slice() {
-        let src: [u8; 94] = [0; 94];
+        let src: [u8; Mint::LEN] = [0; Mint::LEN];
         let mint = Mint::unpack_from_slice(&src).unwrap();
         assert!(!mint.is_initialized);
 
-        let mut src: [u8; 94] = [0; 94];
+        let mut src: [u8; Mint::LEN] = [0; Mint::LEN];
         src[45] = 2;
         let mint = Mint::unpack_from_slice(&src).unwrap_err();
         assert_eq!(mint, ProgramError::InvalidAccountData);

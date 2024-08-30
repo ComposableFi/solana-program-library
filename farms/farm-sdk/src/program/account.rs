@@ -661,7 +661,7 @@ mod tests {
             supply: 1234567891011,
             ..Mint::default()
         };
-        let mut packed: [u8; 82] = [0; 82];
+        let mut packed: [u8; 82] = [0; Mint::LEN];
         Mint::pack(mint, &mut packed).unwrap();
 
         let supply = array_ref![packed, 36, 8];
@@ -674,7 +674,7 @@ mod tests {
             decimals: 123,
             ..Mint::default()
         };
-        let mut packed: [u8; 82] = [0; 82];
+        let mut packed: [u8; 82] = [0; Mint::LEN];
         Mint::pack(mint, &mut packed).unwrap();
 
         let decimals = array_ref![packed, 44, 1];
