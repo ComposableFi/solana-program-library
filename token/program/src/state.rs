@@ -37,8 +37,9 @@ impl IsInitialized for Mint {
 }
 impl Pack for Mint {
     const LEN: usize = 94;
+
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let src = array_ref![src, 0, Self::LEN];
+        let src = array_ref![src, 0, 94];
         let (mint_authority, supply, decimals, is_initialized, freeze_authority, supply_on_l1) =
             array_refs![src, 36, 8, 1, 1, 36, 12];
         let mint_authority = unpack_coption_key(mint_authority)?;
@@ -61,7 +62,7 @@ impl Pack for Mint {
         })
     }
     fn pack_into_slice(&self, dst: &mut [u8]) {
-        let dst = array_mut_ref![dst, 0, Self::LEN];
+        let dst = array_mut_ref![dst, 0, 94];
         let (
             mint_authority_dst,
             supply_dst,
