@@ -1302,7 +1302,7 @@ impl Processor {
                 mint_authority,
                 freeze_authority,
             } => {
-                msg!("Instruction: InitializeMint asdfasfda");
+                msg!("Instruction: InitializeMint");
                 Self::process_initialize_mint(accounts, decimals, mint_authority, freeze_authority)
             }
             TokenInstruction::InitializeMint2 {
