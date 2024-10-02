@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 #
 # Updates the solana version in all the SPL crates
 #
@@ -17,7 +17,9 @@ sed -i'' -e "s#solana_version=v.*#solana_version=v${solana_ver}#" ./ci/solana-ve
 sed -i'' -e "s#solana_version = \".*\"#solana_version = \"${solana_ver}\"#" ./Anchor.toml
 
 declare tomls=()
-while IFS='' read -r line; do tomls+=("$line"); done < <(find . -name Cargo.toml)
+find . -name Cargo.toml | while IFS='' read -r line; do
+    tomls+=("$line")
+done
 
 crates=(
   solana-account-decoder

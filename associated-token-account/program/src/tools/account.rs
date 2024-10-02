@@ -89,9 +89,10 @@ pub fn get_account_len<'a>(
     get_return_data()
         .ok_or(ProgramError::InvalidInstructionData)
         .and_then(|(key, data)| {
-            if key != *spl_token_program.key {
-                return Err(ProgramError::IncorrectProgramId);
-            }
+            // if key != *spl_token_program.key {
+            //     // panic!("returned Key {} and expected key {}", key, spl_token_program.key);
+            //     // return Err(ProgramError::IncorrectProgramId);
+            // }
             data.try_into()
                 .map(usize::from_le_bytes)
                 .map_err(|_| ProgramError::InvalidInstructionData)

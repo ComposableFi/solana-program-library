@@ -26,8 +26,6 @@ pub struct Mint {
     pub is_initialized: bool,
     /// Optional authority to freeze token accounts.
     pub freeze_authority: COption<Pubkey>,
-    /// total supply of tokens on l1 (should always be more than supply)
-    pub supply_on_l1: COption<u64>,
 }
 impl Sealed for Mint {}
 impl IsInitialized for Mint {
@@ -36,6 +34,79 @@ impl IsInitialized for Mint {
     }
 }
 impl Pack for Mint {
+    const LEN: usize = 82;
+
+    fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+        let src = array_ref![src, 0, 82];
+        let (mint_authority, supply, decimals, is_initialized, freeze_authority) =
+            array_refs![src, 36, 8, 1, 1, 36];
+        let mint_authority = unpack_coption_key(mint_authority)?;
+        let supply = u64::from_le_bytes(*supply);
+        let decimals = decimals[0];
+        let is_initialized = match is_initialized {
+            [0] => false,
+            [1] => true,
+            _ => return Err(ProgramError::InvalidAccountData),
+        };
+        let freeze_authority = unpack_coption_key(freeze_authority)?;
+        Ok(Mint {
+            mint_authority,
+            supply,
+            decimals,
+            is_initialized,
+            freeze_authority,
+        })
+    }
+    fn pack_into_slice(&self, dst: &mut [u8]) {
+        let dst = array_mut_ref![dst, 0, 82];
+        let (
+            mint_authority_dst,
+            supply_dst,
+            decimals_dst,
+            is_initialized_dst,
+            freeze_authority_dst,
+        ) = mut_array_refs![dst, 36, 8, 1, 1, 36];
+        let &Mint {
+            ref mint_authority,
+            supply,
+            decimals,
+            is_initialized,
+            ref freeze_authority,
+        } = self;
+        pack_coption_key(mint_authority, mint_authority_dst);
+        *supply_dst = supply.to_le_bytes();
+        decimals_dst[0] = decimals;
+        is_initialized_dst[0] = is_initialized as u8;
+        pack_coption_key(freeze_authority, freeze_authority_dst);
+    }
+}
+
+/// Mint With rebase data.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MintWithRebase {
+    /// Optional authority used to mint new tokens. The mint authority may only be provided during
+    /// mint creation. If no mint authority is present then the mint has a fixed supply and no
+    /// further tokens may be minted.
+    pub mint_authority: COption<Pubkey>,
+    /// Total supply of tokens.
+    pub supply: u64,
+    /// Number of base 10 digits to the right of the decimal place.
+    pub decimals: u8,
+    /// Is `true` if this structure has been initialized
+    pub is_initialized: bool,
+    /// Optional authority to freeze token accounts.
+    pub freeze_authority: COption<Pubkey>,
+    /// total supply of tokens on l1 (should always be more than supply)
+    pub supply_on_l1: COption<u64>,
+}
+impl Sealed for MintWithRebase {}
+impl IsInitialized for MintWithRebase {
+    fn is_initialized(&self) -> bool {
+        self.is_initialized
+    }
+}
+impl Pack for MintWithRebase {
     const LEN: usize = 94;
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -52,7 +123,7 @@ impl Pack for Mint {
         };
         let freeze_authority = unpack_coption_key(freeze_authority)?;
         let supply_on_l1 = unpack_coption_u64(supply_on_l1)?;
-        Ok(Mint {
+        Ok(MintWithRebase {
             mint_authority,
             supply,
             decimals,
@@ -71,7 +142,7 @@ impl Pack for Mint {
             freeze_authority_dst,
             supply_on_l1_dst,
         ) = mut_array_refs![dst, 36, 8, 1, 1, 36, 12];
-        let &Mint {
+        let &MintWithRebase {
             ref mint_authority,
             supply,
             decimals,
@@ -85,6 +156,18 @@ impl Pack for Mint {
         is_initialized_dst[0] = is_initialized as u8;
         pack_coption_key(freeze_authority, freeze_authority_dst);
         pack_coption_u64(supply_on_l1, supply_on_l1_dst);
+    }
+}
+
+impl From<MintWithRebase> for Mint {
+    fn from(mint: MintWithRebase) -> Self {
+        Self {
+            mint_authority: mint.mint_authority,
+            supply: mint.supply,
+            decimals: mint.decimals,
+            is_initialized: mint.is_initialized,
+            freeze_authority: mint.freeze_authority,
+        }
     }
 }
 

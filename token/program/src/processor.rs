@@ -4,7 +4,7 @@ use crate::{
     amount_to_ui_amount_string_trimmed,
     error::TokenError,
     instruction::{is_valid_signer_index, AuthorityType, TokenInstruction, MAX_SIGNERS},
-    state::{Account, AccountState, Mint, Multisig},
+    state::{Account, AccountState, Mint, MintWithRebase, Multisig},
     try_ui_amount_into_amount,
 };
 use solana_program::{
@@ -41,23 +41,41 @@ impl Processor {
         } else {
             Rent::get()?
         };
+        msg!("Data length {}", Mint::LEN);
+        if let Some(l1_token_supply) = l1_token_supply {
+            let mut mint = MintWithRebase::unpack_unchecked(&mint_info.data.borrow())?;
+            if mint.is_initialized {
+                return Err(TokenError::AlreadyInUse.into());
+            }
 
-        let mut mint = Mint::unpack_unchecked(&mint_info.data.borrow())?;
-        if mint.is_initialized {
-            return Err(TokenError::AlreadyInUse.into());
+            if !rent.is_exempt(mint_info.lamports(), mint_data_len) {
+                return Err(TokenError::NotRentExempt.into());
+            }
+
+            mint.mint_authority = COption::Some(mint_authority);
+            mint.decimals = decimals;
+            mint.is_initialized = true;
+            mint.freeze_authority = freeze_authority;
+            mint.supply_on_l1 = COption::Some(l1_token_supply);
+
+            MintWithRebase::pack(mint, &mut mint_info.data.borrow_mut())?;
+        } else {
+            let mut mint = Mint::unpack_unchecked(&mint_info.data.borrow())?;
+            if mint.is_initialized {
+                return Err(TokenError::AlreadyInUse.into());
+            }
+
+            if !rent.is_exempt(mint_info.lamports(), mint_data_len) {
+                return Err(TokenError::NotRentExempt.into());
+            }
+
+            mint.mint_authority = COption::Some(mint_authority);
+            mint.decimals = decimals;
+            mint.is_initialized = true;
+            mint.freeze_authority = freeze_authority;
+
+            Mint::pack(mint, &mut mint_info.data.borrow_mut())?;
         }
-
-        if !rent.is_exempt(mint_info.lamports(), mint_data_len) {
-            return Err(TokenError::NotRentExempt.into());
-        }
-
-        mint.mint_authority = COption::Some(mint_authority);
-        mint.decimals = decimals;
-        mint.is_initialized = true;
-        mint.freeze_authority = freeze_authority;
-        mint.supply_on_l1 = l1_token_supply.into();
-
-        Mint::pack(mint, &mut mint_info.data.borrow_mut())?;
 
         Ok(())
     }
@@ -844,9 +862,17 @@ impl Processor {
         let mint_info = next_account_info(account_info_iter)?;
         Self::check_account_owner(program_id, mint_info)?;
 
-        let mint = Mint::unpack(&mint_info.data.borrow_mut())
-            .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
-        let ui_amount = if let COption::Some(supply_on_l1) = mint.supply_on_l1 {
+        let (mint, supply_on_l1): (Mint, COption<u64>) = if mint_info.data_len() == Mint::LEN {
+            let mint = Mint::unpack(&mint_info.data.borrow_mut())
+                .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
+            (mint, COption::None)
+        } else {
+            let mint = MintWithRebase::unpack(&mint_info.data.borrow_mut())
+                .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
+            (mint.into(), mint.supply_on_l1)
+        };
+
+        let ui_amount = if let COption::Some(supply_on_l1) = supply_on_l1 {
             let share = supply_on_l1 / mint.supply;
             let amount = (share * amount) / 10_u64.pow(mint.decimals.into());
             amount_to_ui_amount_string_trimmed(amount, mint.decimals)
@@ -858,7 +884,7 @@ impl Processor {
             "Amount to UI amount: {} original: {} with share price {:?}",
             ui_amount,
             amount,
-            mint.supply_on_l1
+            supply_on_l1
         );
 
         set_return_data(&ui_amount.into_bytes());
@@ -875,10 +901,18 @@ impl Processor {
         let mint_info = next_account_info(account_info_iter)?;
         Self::check_account_owner(program_id, mint_info)?;
 
-        let mint = Mint::unpack(&mint_info.data.borrow_mut())
-            .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
+        let (mint, supply_on_l1): (Mint, COption<u64>) = if mint_info.data_len() == Mint::LEN {
+            let mint = Mint::unpack(&mint_info.data.borrow_mut())
+                .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
+            (mint, COption::None)
+        } else {
+            let mint = MintWithRebase::unpack(&mint_info.data.borrow_mut())
+                .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
+            (mint.into(), mint.supply_on_l1)
+        };
+
         let amount = try_ui_amount_into_amount::<u64>(ui_amount.to_string(), mint.decimals)?;
-        let amount = if let COption::Some(supply_on_l1) = mint.supply_on_l1 {
+        let amount = if let COption::Some(supply_on_l1) = supply_on_l1 {
             let share = supply_on_l1 / mint.supply;
             amount / share
         } else {
@@ -893,7 +927,7 @@ impl Processor {
             "Amount to UI amount: {} original: {} with share price {:?}",
             ui_amount,
             amount,
-            mint.supply_on_l1
+            supply_on_l1
         );
 
         set_return_data(&(amount).to_le_bytes());
@@ -913,7 +947,7 @@ impl Processor {
         // Check mint authority
         let owner_info = next_account_info(account_info_iter)?;
 
-        let mut mint = Mint::unpack(&mint_info.data.borrow_mut())?;
+        let mut mint = MintWithRebase::unpack(&mint_info.data.borrow_mut())?;
 
         match mint.mint_authority {
             COption::Some(mint_authority) => Self::validate_owner(
@@ -939,7 +973,7 @@ impl Processor {
 
         mint.supply_on_l1 = new_l1_token_supply.into();
 
-        Mint::pack(mint, &mut mint_info.data.borrow_mut())?;
+        MintWithRebase::pack(mint, &mut mint_info.data.borrow_mut())?;
 
         Ok(())
     }
@@ -954,7 +988,7 @@ impl Processor {
                 mint_authority,
                 freeze_authority,
             } => {
-                msg!("Instruction: InitializeMint");
+                msg!("Instruction: InitializeMint adfafa");
                 Self::process_initialize_mint(accounts, decimals, mint_authority, freeze_authority)
             }
             TokenInstruction::InitializeMint2 {
@@ -1297,7 +1331,6 @@ mod tests {
             decimals: 7,
             is_initialized: true,
             freeze_authority: COption::Some(Pubkey::new(&[2; 32])),
-            supply_on_l1: COption::None,
         };
         let mut packed = vec![0; Mint::get_packed_len() + 1];
         assert_eq!(
@@ -1540,7 +1573,7 @@ mod tests {
             vec![&mut mint2_account],
         )
         .unwrap();
-        let mint = Mint::unpack_unchecked(&mint2_account.data).unwrap();
+        let mint = MintWithRebase::unpack_unchecked(&mint2_account.data).unwrap();
         assert_eq!(mint.freeze_authority, COption::Some(owner_key));
         assert_eq!(mint.supply_on_l1, COption::Some(0));
     }
@@ -2000,7 +2033,7 @@ mod tests {
             vec![&mut mint2_account],
         )
         .unwrap();
-        let mint = Mint::unpack_unchecked(&mint2_account.data).unwrap();
+        let mint = MintWithRebase::unpack_unchecked(&mint2_account.data).unwrap();
         assert_eq!(mint.freeze_authority, COption::Some(owner_key));
         assert_eq!(mint.supply_on_l1, COption::Some(0));
 
@@ -3050,7 +3083,6 @@ mod tests {
                 decimals,
                 is_initialized: true,
                 freeze_authority: COption::None,
-                supply_on_l1: COption::None,
             }
         );
 

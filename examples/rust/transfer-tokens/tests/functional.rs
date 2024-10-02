@@ -35,6 +35,8 @@ async fn success() {
     // Start the program test
     let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
 
+    println!("FUCK U {}", program_test);
+
     // Setup the mint, used in `spl_token::instruction::transfer_checked`
     let transaction = Transaction::new_signed_with_payer(
         &[
@@ -42,7 +44,7 @@ async fn success() {
                 &payer.pubkey(),
                 &mint.pubkey(),
                 rent.minimum_balance(Mint::LEN),
-                Mint::LEN as u64,
+                82 as u64,
                 &spl_token::id(),
             ),
             spl_token::instruction::initialize_mint(
