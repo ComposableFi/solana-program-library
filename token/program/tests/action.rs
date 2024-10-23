@@ -14,6 +14,8 @@ use {
         state::{Account, Mint},
     },
 };
+use spl_token::processor::Processor;
+use spl_token::state::MintExtra;
 
 pub async fn create_mint(
     banks_client: &mut BanksClient,
@@ -51,12 +53,15 @@ pub async fn create_rebasing_mint(
     payer: &Keypair,
     recent_blockhash: Hash,
     pool_mint: &Keypair,
+    pool_mint_extra: &Keypair,
     manager: &Pubkey,
     decimals: u8,
 ) -> Result<(), TransportError> {
     let rent = banks_client.get_rent().await.unwrap();
     let mint_rent = rent.minimum_balance(Mint::LEN);
+    let mint_extra_rent = rent.minimum_balance(MintExtra::LEN);
 
+    // let pool_mint_extra_key = Processor::derive_mint_extra_key(&pool_mint.pubkey(), &payer.pubkey());
     let transaction = Transaction::new_signed_with_payer(
         &[
             system_instruction::create_account(
@@ -66,9 +71,17 @@ pub async fn create_rebasing_mint(
                 Mint::LEN as u64,
                 &id(),
             ),
+            system_instruction::create_account(
+                &payer.pubkey(),
+                &pool_mint_extra.pubkey(),
+                mint_extra_rent,
+                MintExtra::LEN as u64,
+                &id(),
+            ),
             instruction::initialize_mint2_with_rebasing(
                 &id(),
                 &pool_mint.pubkey(),
+                &pool_mint_extra.pubkey(),
                 manager,
                 None,
                 decimals,
@@ -76,7 +89,7 @@ pub async fn create_rebasing_mint(
             .unwrap(),
         ],
         Some(&payer.pubkey()),
-        &[payer, pool_mint],
+        &[payer, pool_mint, &pool_mint_extra],
         recent_blockhash,
     );
     banks_client.process_transaction(transaction).await?;

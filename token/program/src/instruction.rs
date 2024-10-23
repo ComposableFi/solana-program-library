@@ -883,6 +883,7 @@ pub fn initialize_mint2(
 pub fn initialize_mint2_with_rebasing(
     token_program_id: &Pubkey,
     mint_pubkey: &Pubkey,
+    mint_extra_pubkey: &Pubkey,
     mint_authority_pubkey: &Pubkey,
     freeze_authority_pubkey: Option<&Pubkey>,
     decimals: u8,
@@ -896,7 +897,10 @@ pub fn initialize_mint2_with_rebasing(
     }
     .pack();
 
-    let accounts = vec![AccountMeta::new(*mint_pubkey, false)];
+    let accounts = vec![
+        AccountMeta::new(*mint_pubkey, false),
+        AccountMeta::new(*mint_extra_pubkey, false),
+    ];
 
     Ok(Instruction {
         program_id: *token_program_id,
@@ -1512,15 +1516,22 @@ pub fn ui_amount_to_amount(
 pub fn update_l1_token_supply(
     token_program_id: &Pubkey,
     mint_pubkey: &Pubkey,
+    mint_extra_pubkey: &Pubkey,
     signer_pubkeys: &[&Pubkey],
     new_l1_token_supply: u64,
 ) -> Result<Instruction, ProgramError> {
     check_program_account(token_program_id)?;
 
-    let mut accounts = vec![AccountMeta::new(*mint_pubkey, false)];
+    let mut accounts = vec![
+        AccountMeta::new(*mint_pubkey, false),
+    ];
     for signer_pubkey in signer_pubkeys.iter() {
         accounts.push(AccountMeta::new_readonly(**signer_pubkey, true));
     }
+    accounts.push(
+        AccountMeta::new(*mint_extra_pubkey, false),
+
+    );
 
     Ok(Instruction {
         program_id: *token_program_id,

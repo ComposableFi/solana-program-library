@@ -78,9 +78,9 @@ pub enum TokenError {
     /// Instruction does not support non-native tokens
     #[error("Instruction does not support non-native tokens")]
     NonNativeNotSupported,
-    /// The token mint is not a rebasing token
-    #[error("The token mint is not a rebasing token")]
-    NotRebasingMint,
+    /// Invalid token mint extra
+    #[error("Invalid token mint extra")]
+    InvalidMintExtra,
     /// The share price of the token can only increase
     #[error("Share Price Can Only Increase")]
     SharePriceCanOnlyIncrease,
@@ -140,7 +140,7 @@ impl PrintProgramError for TokenError {
             TokenError::NonNativeNotSupported => {
                 msg!("Error: Instruction does not support non-native tokens")
             }
-            TokenError::NotRebasingMint => {
+            TokenError::InvalidMintExtra => {
                 msg!("Error: The token mint is not a rebasing token")
             }
             TokenError::SharePriceCanOnlyIncrease => {
