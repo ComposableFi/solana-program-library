@@ -834,8 +834,13 @@ impl Processor {
         // make sure the mint is valid
         let mint_info = next_account_info(account_info_iter)?;
         Self::check_account_owner(program_id, mint_info)?;
-        let _ = Mint::unpack(&mint_info.data.borrow())
-            .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
+        if mint_info.data_len() == Mint::LEN {
+            Mint::unpack(&mint_info.data.borrow())
+                .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
+        } else {
+            MintWithRebase::unpack(&mint_info.data.borrow())
+                .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
+        };
         set_return_data(&Account::LEN.to_le_bytes());
         Ok(())
     }
