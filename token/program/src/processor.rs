@@ -947,7 +947,11 @@ impl Processor {
         // Check mint authority
         let owner_info = next_account_info(account_info_iter)?;
 
-        let mut mint = MintWithRebase::unpack(&mint_info.data.borrow_mut())?;
+        if mint_info.data_len() != MintWithRebase::LEN {
+            return Err(TokenError::NotRebasingMint.into()); 
+        }
+
+        let mut mint =  MintWithRebase::unpack(&mint_info.data.borrow_mut())?;
 
         match mint.mint_authority {
             COption::Some(mint_authority) => Self::validate_owner(
@@ -1292,6 +1296,10 @@ mod tests {
         Rent::default().minimum_balance(Mint::get_packed_len())
     }
 
+    fn mint_with_rebase_minimum_balance() -> u64 {
+        Rent::default().minimum_balance(MintWithRebase::get_packed_len())
+    }
+
     fn account_minimum_balance() -> u64 {
         Rent::default().minimum_balance(Account::get_packed_len())
     }
@@ -1347,8 +1355,7 @@ mod tests {
         let expect = vec![
             1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
             1, 1, 1, 1, 1, 1, 1, 42, 0, 0, 0, 0, 0, 0, 0, 7, 1, 1, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2,
-            2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0,
+            2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2
         ];
         assert_eq!(packed, expect);
         let unpacked = Mint::unpack(&packed).unwrap();
@@ -1528,10 +1535,10 @@ mod tests {
         let program_id = crate::id();
         let owner_key = Pubkey::new_unique();
         let mint_key = Pubkey::new_unique();
-        let mut mint_account = SolanaAccount::new(42, Mint::get_packed_len(), &program_id);
+        let mut mint_account = SolanaAccount::new(42, MintWithRebase::get_packed_len(), &program_id);
         let mint2_key = Pubkey::new_unique();
         let mut mint2_account =
-            SolanaAccount::new(mint_minimum_balance(), Mint::get_packed_len(), &program_id);
+            SolanaAccount::new(mint_with_rebase_minimum_balance(), MintWithRebase::get_packed_len(), &program_id);
 
         // mint is not rent exempt
         assert_eq!(
@@ -1542,11 +1549,11 @@ mod tests {
             )
         );
 
-        mint_account.lamports = mint_minimum_balance();
+        mint_account.lamports = mint_with_rebase_minimum_balance();
 
         // create new mint
         do_process_instruction(
-            initialize_mint2(&program_id, &mint_key, &owner_key, None, 2).unwrap(),
+            initialize_mint2_with_rebasing(&program_id, &mint_key, &owner_key, None, 2).unwrap(),
             vec![&mut mint_account],
         )
         .unwrap();
@@ -1986,10 +1993,10 @@ mod tests {
         let mut mint_account = SolanaAccount::new(42, Mint::get_packed_len(), &program_id);
         let mint2_key = Pubkey::new_unique();
         let mut mint2_account =
-            SolanaAccount::new(mint_minimum_balance(), Mint::get_packed_len(), &program_id);
+            SolanaAccount::new(mint_with_rebase_minimum_balance(), MintWithRebase::get_packed_len(), &program_id);
         let mut owner_acc = SolanaAccount::new(
-            mint_minimum_balance(),
-            Mint::get_packed_len(),
+            mint_with_rebase_minimum_balance(),
+            MintWithRebase::get_packed_len(),
             &system_program::ID,
         );
 
