@@ -100,6 +100,43 @@ pub struct MintWithRebase {
     /// total supply of tokens on l1 (should always be more than supply)
     pub supply_on_l1: COption<u64>,
 }
+impl MintWithRebase {
+    /// Unchecked unpack into MintWithRebase potentially ignoring `supply_on_l1` field (if the account size is
+    /// equal to `Mint::LEN`).
+    pub fn unpack_unchecked_maybe_not_rebase(input: &[u8]) -> Result<Self, ProgramError>
+    where
+        Self: IsInitialized,
+    {
+        if input.len() != Mint::LEN && input.len() != Self::LEN {
+            return Err(ProgramError::InvalidAccountData);
+        }
+        Self::unpack_from_slice(input)
+    }
+
+    /// Unpack into MintWithRebase potentially ignoring `supply_on_l1` field (if the account size is
+    /// equal to `Mint::LEN`).
+    pub fn unpack_ignore_maybe_not_rebase(input: &[u8]) -> Result<Self, ProgramError>
+    where
+        Self: IsInitialized,
+    {
+        let value = Self::unpack_unchecked_maybe_not_rebase(input)?;
+        if value.is_initialized() {
+            Ok(value)
+        } else {
+            Err(ProgramError::UninitializedAccount)
+        }
+    }
+
+    /// Pack into slice potentially ignoring `supply_on_l1` field (if the account size is equal to
+    /// `Mint::LEN`).
+    pub fn pack_maybe_not_rebase(src: Self, dst: &mut [u8]) -> Result<(), ProgramError> {
+        if dst.len() != Self::LEN && dst.len() != Mint::LEN {
+            return Err(ProgramError::InvalidAccountData);
+        }
+        src.pack_into_slice(dst);
+        Ok(())
+    }
+}
 impl Sealed for MintWithRebase {}
 impl IsInitialized for MintWithRebase {
     fn is_initialized(&self) -> bool {
@@ -107,12 +144,12 @@ impl IsInitialized for MintWithRebase {
     }
 }
 impl Pack for MintWithRebase {
-    const LEN: usize = 94;
+    const LEN: usize = Mint::LEN + 8;
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let src = array_ref![src, 0, 94];
-        let (mint_authority, supply, decimals, is_initialized, freeze_authority, supply_on_l1) =
-            array_refs![src, 36, 8, 1, 1, 36, 12];
+        let src_arr = array_ref![src, 0, Mint::LEN];
+        let (mint_authority, supply, decimals, is_initialized, freeze_authority) =
+            array_refs![src_arr, 36, 8, 1, 1, 36];
         let mint_authority = unpack_coption_key(mint_authority)?;
         let supply = u64::from_le_bytes(*supply);
         let decimals = decimals[0];
@@ -122,7 +159,13 @@ impl Pack for MintWithRebase {
             _ => return Err(ProgramError::InvalidAccountData),
         };
         let freeze_authority = unpack_coption_key(freeze_authority)?;
-        let supply_on_l1 = unpack_coption_u64(supply_on_l1)?;
+        let supply_on_l1 = if src.len() == Self::LEN {
+            let src = array_ref![src, Mint::LEN, 8];
+            let supply_on_l1 = u64::from_le_bytes(*src);
+            COption::Some(supply_on_l1)
+        } else {
+            COption::None
+        };
         Ok(MintWithRebase {
             mint_authority,
             supply,
@@ -133,15 +176,14 @@ impl Pack for MintWithRebase {
         })
     }
     fn pack_into_slice(&self, dst: &mut [u8]) {
-        let dst = array_mut_ref![dst, 0, 94];
+        let dst_arr = array_mut_ref![dst, 0, Mint::LEN];
         let (
             mint_authority_dst,
             supply_dst,
             decimals_dst,
             is_initialized_dst,
             freeze_authority_dst,
-            supply_on_l1_dst,
-        ) = mut_array_refs![dst, 36, 8, 1, 1, 36, 12];
+        ) = mut_array_refs![dst_arr, 36, 8, 1, 1, 36];
         let &MintWithRebase {
             ref mint_authority,
             supply,
@@ -155,7 +197,12 @@ impl Pack for MintWithRebase {
         decimals_dst[0] = decimals;
         is_initialized_dst[0] = is_initialized as u8;
         pack_coption_key(freeze_authority, freeze_authority_dst);
-        pack_coption_u64(supply_on_l1, supply_on_l1_dst);
+        if let COption::Some(supply_on_l1) = supply_on_l1 {
+            let supply_on_l1_dst = array_mut_ref![dst, Mint::LEN, 8];
+            *supply_on_l1_dst = supply_on_l1.to_le_bytes();
+        } else {
+            assert_eq!(dst.len(), Mint::LEN);
+        }
     }
 }
 
