@@ -84,6 +84,12 @@ pub enum TokenError {
     /// The share price of the token can only increase
     #[error("Share Price Can Only Increase")]
     SharePriceCanOnlyIncrease,
+    /// Token supply is zero
+    #[error("Token supply is zero")]
+    ZeroSupply,
+    /// Token share is zero
+    #[error("Token share is zero")]
+    ZeroShare,
 }
 impl From<TokenError> for ProgramError {
     fn from(e: TokenError) -> Self {
@@ -146,6 +152,10 @@ impl PrintProgramError for TokenError {
             TokenError::SharePriceCanOnlyIncrease => {
                 msg!("Error: The share price of the token can only increase")
             }
+            TokenError::ZeroSupply =>
+                msg!("Error: Token supply is zero"),
+            TokenError::ZeroShare =>
+                msg!("Error: Token share is zero"),
         }
     }
 }

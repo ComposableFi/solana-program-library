@@ -105,6 +105,7 @@ impl Pack for MintExtra {
             supply_on_l1,
         })
     }
+
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, MintExtra::LEN];
         let supply_on_l1_dst = dst;
