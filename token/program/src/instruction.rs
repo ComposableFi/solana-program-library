@@ -883,6 +883,7 @@ pub fn initialize_mint2(
 pub fn initialize_mint2_with_rebasing(
     token_program_id: &Pubkey,
     mint_pubkey: &Pubkey,
+    mint_extra_pubkey: &Pubkey,
     mint_authority_pubkey: &Pubkey,
     freeze_authority_pubkey: Option<&Pubkey>,
     decimals: u8,
@@ -896,7 +897,10 @@ pub fn initialize_mint2_with_rebasing(
     }
     .pack();
 
-    let accounts = vec![AccountMeta::new(*mint_pubkey, false)];
+    let accounts = vec![
+        AccountMeta::new(*mint_pubkey, false),
+        AccountMeta::new(*mint_extra_pubkey, false),
+    ];
 
     Ok(Instruction {
         program_id: *token_program_id,
@@ -1508,19 +1512,64 @@ pub fn ui_amount_to_amount(
     })
 }
 
+/// Creates an `AmountToUiAmount` instruction for rebased tokens
+pub fn amount_to_ui_amount_rebasing(
+    token_program_id: &Pubkey,
+    mint_pubkey: &Pubkey,
+    mint_extra_pubkey: &Pubkey,
+    amount: u64,
+) -> Result<Instruction, ProgramError> {
+    check_program_account(token_program_id)?;
+
+    Ok(Instruction {
+        program_id: *token_program_id,
+        accounts: vec![
+            AccountMeta::new_readonly(*mint_pubkey, false),
+            AccountMeta::new_readonly(*mint_extra_pubkey, false),
+        ],
+        data: TokenInstruction::AmountToUiAmount { amount }.pack(),
+    })
+}
+
+/// Creates a `UiAmountToAmount` instruction for rebased tokens
+pub fn ui_amount_to_amount_rebasing(
+    token_program_id: &Pubkey,
+    mint_pubkey: &Pubkey,
+    mint_extra_pubkey: &Pubkey,
+    ui_amount: &str,
+) -> Result<Instruction, ProgramError> {
+    check_program_account(token_program_id)?;
+
+    Ok(Instruction {
+        program_id: *token_program_id,
+        accounts: vec![
+            AccountMeta::new_readonly(*mint_pubkey, false),
+            AccountMeta::new_readonly(*mint_extra_pubkey, false),
+        ],
+        data: TokenInstruction::UiAmountToAmount { ui_amount }.pack(),
+    })
+}
+
 /// Creates a `UiAmountToAmount` instruction
 pub fn update_l1_token_supply(
     token_program_id: &Pubkey,
     mint_pubkey: &Pubkey,
+    mint_extra_pubkey: &Pubkey,
     signer_pubkeys: &[&Pubkey],
     new_l1_token_supply: u64,
 ) -> Result<Instruction, ProgramError> {
     check_program_account(token_program_id)?;
 
-    let mut accounts = vec![AccountMeta::new(*mint_pubkey, false)];
+    let mut accounts = vec![
+        AccountMeta::new(*mint_pubkey, false),
+    ];
     for signer_pubkey in signer_pubkeys.iter() {
         accounts.push(AccountMeta::new_readonly(**signer_pubkey, true));
     }
+    accounts.push(
+        AccountMeta::new(*mint_extra_pubkey, false),
+
+    );
 
     Ok(Instruction {
         program_id: *token_program_id,
