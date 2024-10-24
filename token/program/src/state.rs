@@ -79,6 +79,25 @@ impl Pack for Mint {
         is_initialized_dst[0] = is_initialized as u8;
         pack_coption_key(freeze_authority, freeze_authority_dst);
     }
+
+    /// Default implementation of `unpack_unchecked` with an addition that it won't error
+    /// if the account length is equal to `MintWithRebase::LEN`.
+    fn unpack_unchecked(input: &[u8]) -> Result<Self, ProgramError> {
+        if input.len() != Self::LEN && input.len() != MintWithRebase::LEN {
+            return Err(ProgramError::InvalidAccountData);
+        }
+        Self::unpack_from_slice(input)
+    }
+
+    /// Default implementation of `pack` with an addition that it won't error
+    /// if the account length is equal to `MintWithRebase::LEN`.
+    fn pack(src: Self, dst: &mut [u8]) -> Result<(), ProgramError> {
+        if dst.len() != Self::LEN && dst.len() != MintWithRebase::LEN  {
+            return Err(ProgramError::InvalidAccountData);
+        }
+        src.pack_into_slice(dst);
+        Ok(())
+    }
 }
 
 /// Mint With rebase data.
