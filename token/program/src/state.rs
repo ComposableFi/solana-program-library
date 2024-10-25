@@ -134,7 +134,7 @@ impl MintWithRebase {
 
     /// Unpack into MintWithRebase potentially ignoring `supply_on_l1` field (if the account size is
     /// equal to `Mint::LEN`).
-    pub fn unpack_ignore_maybe_not_rebase(input: &[u8]) -> Result<Self, ProgramError>
+    pub fn unpack_maybe_not_rebase(input: &[u8]) -> Result<Self, ProgramError>
     where
         Self: IsInitialized,
     {

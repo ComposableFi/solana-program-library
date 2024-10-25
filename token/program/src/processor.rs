@@ -147,7 +147,7 @@ impl Processor {
         let is_native_mint = Self::cmp_pubkeys(mint_info.key, &crate::native_mint::id());
         if !is_native_mint {
             Self::check_account_owner(program_id, mint_info)?;
-            MintWithRebase::unpack_ignore_maybe_not_rebase(&mint_info.data.borrow())
+            MintWithRebase::unpack_maybe_not_rebase(&mint_info.data.borrow())
                 .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
         }
 
@@ -290,7 +290,7 @@ impl Processor {
                 return Err(TokenError::MintMismatch.into());
             }
 
-            let mint = MintWithRebase::unpack_ignore_maybe_not_rebase(&mint_info.data.borrow_mut())?;
+            let mint = MintWithRebase::unpack_maybe_not_rebase(&mint_info.data.borrow_mut())?;
             if expected_decimals != mint.decimals {
                 return Err(TokenError::MintDecimalsMismatch.into());
             }
@@ -399,7 +399,7 @@ impl Processor {
                 return Err(TokenError::MintMismatch.into());
             }
 
-            let mint = MintWithRebase::unpack_ignore_maybe_not_rebase(&mint_info.data.borrow_mut())?;
+            let mint = MintWithRebase::unpack_maybe_not_rebase(&mint_info.data.borrow_mut())?;
             if expected_decimals != mint.decimals {
                 return Err(TokenError::MintDecimalsMismatch.into());
             }
@@ -504,7 +504,7 @@ impl Processor {
             }
             Account::pack(account, &mut account_info.data.borrow_mut())?;
         } else if account_info.data_len() == Mint::get_packed_len() {
-            let mut mint = MintWithRebase::unpack_ignore_maybe_not_rebase(&account_info.data.borrow())?;
+            let mut mint = MintWithRebase::unpack_maybe_not_rebase(&account_info.data.borrow())?;
             match authority_type {
                 AuthorityType::MintTokens => {
                     // Once a mint's supply is fixed, it cannot be undone by setting a new
@@ -570,7 +570,7 @@ impl Processor {
             return Err(TokenError::MintMismatch.into());
         }
 
-        let mut mint = MintWithRebase::unpack_ignore_maybe_not_rebase(&mint_info.data.borrow())?;
+        let mut mint = MintWithRebase::unpack_maybe_not_rebase(&mint_info.data.borrow())?;
         if let Some(expected_decimals) = expected_decimals {
             if expected_decimals != mint.decimals {
                 return Err(TokenError::MintDecimalsMismatch.into());
@@ -625,7 +625,7 @@ impl Processor {
         let authority_info = next_account_info(account_info_iter)?;
 
         let mut source_account = Account::unpack(&source_account_info.data.borrow())?;
-        let mut mint = MintWithRebase::unpack_ignore_maybe_not_rebase(&mint_info.data.borrow())?;
+        let mut mint = MintWithRebase::unpack_maybe_not_rebase(&mint_info.data.borrow())?;
 
         if source_account.is_frozen() {
             return Err(TokenError::AccountFrozen.into());
@@ -760,7 +760,7 @@ impl Processor {
             return Err(TokenError::MintMismatch.into());
         }
 
-        let mint = MintWithRebase::unpack_ignore_maybe_not_rebase(&mint_info.data.borrow_mut())?;
+        let mint = MintWithRebase::unpack_maybe_not_rebase(&mint_info.data.borrow_mut())?;
         match mint.freeze_authority {
             COption::Some(authority) => Self::validate_owner(
                 program_id,
@@ -816,7 +816,7 @@ impl Processor {
         // make sure the mint is valid
         let mint_info = next_account_info(account_info_iter)?;
         Self::check_account_owner(program_id, mint_info)?;
-        MintWithRebase::unpack_ignore_maybe_not_rebase(&mint_info.data.borrow())
+        MintWithRebase::unpack_maybe_not_rebase(&mint_info.data.borrow())
             .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
         set_return_data(&Account::LEN.to_le_bytes());
         Ok(())
@@ -844,7 +844,7 @@ impl Processor {
         let mint_info = next_account_info(account_info_iter)?;
         Self::check_account_owner(program_id, mint_info)?;
 
-        let mint = MintWithRebase::unpack_ignore_maybe_not_rebase(&mint_info.data.borrow_mut())
+        let mint = MintWithRebase::unpack_maybe_not_rebase(&mint_info.data.borrow_mut())
             .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
 
         let ui_amount = if let COption::Some(supply_on_l1) = mint.supply_on_l1 {
@@ -876,7 +876,7 @@ impl Processor {
         let mint_info = next_account_info(account_info_iter)?;
         Self::check_account_owner(program_id, mint_info)?;
 
-        let mint = MintWithRebase::unpack_ignore_maybe_not_rebase(&mint_info.data.borrow_mut())
+        let mint = MintWithRebase::unpack_maybe_not_rebase(&mint_info.data.borrow_mut())
             .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
 
         let amount = try_ui_amount_into_amount::<u64>(ui_amount.to_string(), mint.decimals)?;
