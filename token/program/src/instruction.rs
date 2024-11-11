@@ -490,9 +490,13 @@ pub enum TokenInstruction<'a> {
     ///
     ///   0. `[writable]` The mint to update the share price for
     ///   1. `[signer]` The mint's minting authority.
-    UpdateL1TokenSupply {
+    SetL1TokenSupply {
         /// The new token supply of the mint on l1.
         l1_token_supply: u64,
+    },
+    IncreaseL1TokenSupply {
+        /// Additional token supply to mint on l1.
+        additional_l1_token_supply: u64,
     },
     // Any new variants also need to be added to program-2022 `TokenInstruction`, so that the
     // latter remains a superset of this instruction set. New variants also need to be added to
@@ -611,7 +615,13 @@ impl<'a> TokenInstruction<'a> {
             }
             26 => {
                 let (l1_token_supply, _rest) = Self::unpack_u64(rest)?;
-                Self::UpdateL1TokenSupply { l1_token_supply }
+                Self::SetL1TokenSupply { l1_token_supply }
+            }
+            27 => {
+                let (additional_l1_token_supply, _rest) = Self::unpack_u64(rest)?;
+                Self::IncreaseL1TokenSupply {
+                    additional_l1_token_supply,
+                }
             }
             _ => return Err(TokenError::InvalidInstruction.into()),
         })
@@ -733,9 +743,13 @@ impl<'a> TokenInstruction<'a> {
                 buf.push(24);
                 buf.extend_from_slice(ui_amount.as_bytes());
             }
-            Self::UpdateL1TokenSupply { l1_token_supply } => {
+            Self::SetL1TokenSupply { l1_token_supply } => {
                 buf.push(26);
                 buf.extend_from_slice(&l1_token_supply.to_le_bytes());
+            }
+            Self::IncreaseL1TokenSupply { additional_l1_token_supply } => {
+                buf.push(27);
+                buf.extend_from_slice(&additional_l1_token_supply.to_le_bytes());
             }
         };
         buf
@@ -1508,8 +1522,8 @@ pub fn ui_amount_to_amount(
     })
 }
 
-/// Creates a `UiAmountToAmount` instruction
-pub fn update_l1_token_supply(
+/// Creates a `SetL1TokenSupply` instruction
+pub fn set_l1_token_supply(
     token_program_id: &Pubkey,
     mint_pubkey: &Pubkey,
     signer_pubkeys: &[&Pubkey],
@@ -1525,8 +1539,32 @@ pub fn update_l1_token_supply(
     Ok(Instruction {
         program_id: *token_program_id,
         accounts,
-        data: TokenInstruction::UpdateL1TokenSupply {
+        data: TokenInstruction::SetL1TokenSupply {
             l1_token_supply: new_l1_token_supply,
+        }
+        .pack(),
+    })
+}
+
+/// Creates a `IncreaseL1TokenSupply` instruction
+pub fn increase_l1_token_supply(
+    token_program_id: &Pubkey,
+    mint_pubkey: &Pubkey,
+    signer_pubkeys: &[&Pubkey],
+    additional_l1_token_supply: u64,
+) -> Result<Instruction, ProgramError> {
+    check_program_account(token_program_id)?;
+
+    let mut accounts = vec![AccountMeta::new(*mint_pubkey, false)];
+    for signer_pubkey in signer_pubkeys.iter() {
+        accounts.push(AccountMeta::new_readonly(**signer_pubkey, true));
+    }
+
+    Ok(Instruction {
+        program_id: *token_program_id,
+        accounts,
+        data: TokenInstruction::IncreaseL1TokenSupply {
+            additional_l1_token_supply,
         }
         .pack(),
     })

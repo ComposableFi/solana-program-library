@@ -547,6 +547,8 @@ impl Processor {
     }
 
     /// Processes a [MintTo](enum.TokenInstruction.html) instruction.
+    ///
+    /// In case of `MintWithRebase`, accepts the unbased `amount` and mints based.
     pub fn process_mint_to(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
@@ -592,14 +594,34 @@ impl Processor {
             Self::check_account_owner(program_id, destination_account_info)?;
         }
 
+        let amount_minted = match mint.supply_on_l1 {
+            COption::Some(supply_l1_before) => {
+                let amount_minted = mint.rebased_amount(amount)?;
+
+                if amount_minted == 0 {
+                    return Err(TokenError::ZeroRebasedAmount.into());
+                }
+
+                mint.supply_on_l1 = Some(
+                    supply_l1_before
+                        .checked_add(amount)
+                        .ok_or(TokenError::Overflow)?,
+                )
+                .into();
+
+                amount_minted
+            }
+            _ => amount,
+        };
+
         destination_account.amount = destination_account
             .amount
-            .checked_add(amount)
+            .checked_add(amount_minted)
             .ok_or(TokenError::Overflow)?;
 
         mint.supply = mint
             .supply
-            .checked_add(amount)
+            .checked_add(amount_minted)
             .ok_or(TokenError::Overflow)?;
 
         Account::pack(
@@ -612,6 +634,8 @@ impl Processor {
     }
 
     /// Processes a [Burn](enum.TokenInstruction.html) instruction.
+    ///
+    /// In case of `MintWithRebase`, accepts the unbased `amount` and burns based.
     pub fn process_burn(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
@@ -681,13 +705,32 @@ impl Processor {
             Self::check_account_owner(program_id, mint_info)?;
         }
 
+        let amount_burned = match mint.supply_on_l1 {
+            COption::Some(supply_l1_before) => {
+                let amount_burned = mint.rebased_amount(amount)?;
+
+                if amount_burned == 0 {
+                    return Err(TokenError::ZeroRebasedAmount.into());
+                }
+
+                mint.supply_on_l1 = Some(
+                    supply_l1_before
+                        .checked_sub(amount)
+                        .ok_or(TokenError::Overflow)?,
+                )
+                .into();
+
+                amount_burned
+            }
+            _ => amount,
+        };
         source_account.amount = source_account
             .amount
-            .checked_sub(amount)
+            .checked_sub(amount_burned)
             .ok_or(TokenError::Overflow)?;
         mint.supply = mint
             .supply
-            .checked_sub(amount)
+            .checked_sub(amount_burned)
             .ok_or(TokenError::Overflow)?;
 
         Account::pack(source_account, &mut source_account_info.data.borrow_mut())?;
@@ -847,10 +890,9 @@ impl Processor {
         let mint = MintWithRebase::unpack_maybe_not_rebase(&mint_info.data.borrow_mut())
             .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
 
-        let ui_amount = if let COption::Some(supply_on_l1) = mint.supply_on_l1 {
-            let share = supply_on_l1 / mint.supply;
-            let amount = (share * amount) / 10_u64.pow(mint.decimals.into());
-            amount_to_ui_amount_string_trimmed(amount, mint.decimals)
+        let ui_amount = if mint.supply_on_l1.is_some() {
+            let converted_amount = mint.unrebased_amount(amount)?;
+            amount_to_ui_amount_string_trimmed(converted_amount, mint.decimals)
         } else {
             amount_to_ui_amount_string_trimmed(amount, mint.decimals)
         };
@@ -880,16 +922,11 @@ impl Processor {
             .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
 
         let amount = try_ui_amount_into_amount::<u64>(ui_amount.to_string(), mint.decimals)?;
-        let amount = if let COption::Some(supply_on_l1) = mint.supply_on_l1 {
-            let share = supply_on_l1 / mint.supply;
-            amount / share
+        let amount = if mint.supply_on_l1.is_some() {
+            mint.rebased_amount(amount)?
         } else {
             amount
         };
-
-        // if amount > (u64::MAX) || amount < (u64::MIN) {
-        //     return Err(ProgramError::InvalidArgument);
-        // }
 
         msg!(
             "Amount to UI amount: {} original: {} with share price {:?}",
@@ -906,7 +943,8 @@ impl Processor {
     pub fn process_update_l1_token_supply(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
-        new_l1_token_supply: u64,
+        value: u64,
+        increase: bool,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
         let mint_info = next_account_info(account_info_iter)?;
@@ -919,7 +957,7 @@ impl Processor {
             return Err(TokenError::NotRebasingMint.into());
         }
 
-        let mut mint =  MintWithRebase::unpack(&mint_info.data.borrow_mut())?;
+        let mut mint = MintWithRebase::unpack(&mint_info.data.borrow_mut())?;
 
         match mint.mint_authority {
             COption::Some(mint_authority) => Self::validate_owner(
@@ -933,17 +971,21 @@ impl Processor {
 
         let l1_token_supply = mint.supply_on_l1.ok_or(TokenError::NotRebasingMint)?;
 
-        if new_l1_token_supply < l1_token_supply {
-            return Err(TokenError::SharePriceCanOnlyIncrease.into());
+        if increase {
+            msg!(
+                "Increasing value by {} from {}",
+                value,
+                l1_token_supply
+            );
+            mint.supply_on_l1 = Some(l1_token_supply + value).into();
+        } else {
+            msg!(
+                "Setting value to {} from {}",
+                value,
+                l1_token_supply
+            );
+            mint.supply_on_l1 = value.into();
         }
-
-        msg!(
-            "Updating value to {} from {}",
-            new_l1_token_supply,
-            l1_token_supply
-        );
-
-        mint.supply_on_l1 = new_l1_token_supply.into();
 
         MintWithRebase::pack(mint, &mut mint_info.data.borrow_mut())?;
 
@@ -1079,9 +1121,13 @@ impl Processor {
                 msg!("Instruction: UiAmountToAmount");
                 Self::process_ui_amount_to_amount(program_id, accounts, ui_amount)
             }
-            TokenInstruction::UpdateL1TokenSupply { l1_token_supply } => {
-                msg!("Instruction: UpdateL1TokenSupply");
-                Self::process_update_l1_token_supply(program_id, accounts, l1_token_supply)
+            TokenInstruction::SetL1TokenSupply { l1_token_supply } => {
+                msg!("Instruction: SetL1TokenSupply");
+                Self::process_update_l1_token_supply(program_id, accounts, l1_token_supply, false)
+            }
+            TokenInstruction::IncreaseL1TokenSupply { additional_l1_token_supply } => {
+                msg!("Instruction: IncreaseL1TokenSupply");
+                Self::process_update_l1_token_supply(program_id, accounts, additional_l1_token_supply, true)
             }
         }
     }
@@ -1323,7 +1369,7 @@ mod tests {
         let expect = vec![
             1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
             1, 1, 1, 1, 1, 1, 1, 42, 0, 0, 0, 0, 0, 0, 0, 7, 1, 1, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2,
-            2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2
+            2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
         ];
         assert_eq!(packed, expect);
         let unpacked = Mint::unpack(&packed).unwrap();
@@ -1503,16 +1549,21 @@ mod tests {
         let program_id = crate::id();
         let owner_key = Pubkey::new_unique();
         let mint_key = Pubkey::new_unique();
-        let mut mint_account = SolanaAccount::new(42, MintWithRebase::get_packed_len(), &program_id);
+        let mut mint_account =
+            SolanaAccount::new(42, MintWithRebase::get_packed_len(), &program_id);
         let mint2_key = Pubkey::new_unique();
-        let mut mint2_account =
-            SolanaAccount::new(mint_with_rebase_minimum_balance(), MintWithRebase::get_packed_len(), &program_id);
+        let mut mint2_account = SolanaAccount::new(
+            mint_with_rebase_minimum_balance(),
+            MintWithRebase::get_packed_len(),
+            &program_id,
+        );
 
         // mint is not rent exempt
         assert_eq!(
             Err(TokenError::NotRentExempt.into()),
             do_process_instruction(
-                initialize_mint2_with_rebasing(&program_id, &mint_key, &owner_key, None, 2).unwrap(),
+                initialize_mint2_with_rebasing(&program_id, &mint_key, &owner_key, None, 2)
+                    .unwrap(),
                 vec![&mut mint_account]
             )
         );
@@ -1530,7 +1581,8 @@ mod tests {
         assert_eq!(
             Err(TokenError::AlreadyInUse.into()),
             do_process_instruction(
-                initialize_mint2_with_rebasing(&program_id, &mint_key, &owner_key, None, 2,).unwrap(),
+                initialize_mint2_with_rebasing(&program_id, &mint_key, &owner_key, None, 2,)
+                    .unwrap(),
                 vec![&mut mint_account]
             )
         );
@@ -1960,8 +2012,11 @@ mod tests {
         let mint_key = Pubkey::new_unique();
         let mut mint_account = SolanaAccount::new(42, Mint::get_packed_len(), &program_id);
         let mint2_key = Pubkey::new_unique();
-        let mut mint2_account =
-            SolanaAccount::new(mint_with_rebase_minimum_balance(), MintWithRebase::get_packed_len(), &program_id);
+        let mut mint2_account = SolanaAccount::new(
+            mint_with_rebase_minimum_balance(),
+            MintWithRebase::get_packed_len(),
+            &program_id,
+        );
         let mut owner_acc = SolanaAccount::new(
             mint_with_rebase_minimum_balance(),
             MintWithRebase::get_packed_len(),
@@ -2013,23 +2068,34 @@ mod tests {
         assert_eq!(mint.supply_on_l1, COption::Some(0));
 
         do_process_instruction(
-            update_l1_token_supply(&program_id, &mint2_key, &[&owner_key], 110).unwrap(),
+            set_l1_token_supply(&program_id, &mint2_key, &[&owner_key], 110).unwrap(),
             vec![&mut mint2_account, &mut owner_acc],
         )
         .unwrap();
 
         assert_eq!(
-            Err(TokenError::SharePriceCanOnlyIncrease.into()),
+            Ok(()),
             do_process_instruction(
-                update_l1_token_supply(&program_id, &mint2_key, &[&owner_key], 90).unwrap(),
+                set_l1_token_supply(&program_id, &mint2_key, &[&owner_key], 90).unwrap(),
                 vec![&mut mint2_account, &mut owner_acc],
             )
         );
 
+        let mint = MintWithRebase::unpack_unchecked(&mint2_account.data).unwrap();
+        let old_supply_l1 = mint.supply_on_l1.unwrap();
+        let increase_by = 10;
+        do_process_instruction(
+            increase_l1_token_supply(&program_id, &mint2_key, &[&owner_key], increase_by).unwrap(),
+            vec![&mut mint2_account, &mut owner_acc],
+        )
+        .unwrap();
+        let mint = MintWithRebase::unpack_unchecked(&mint2_account.data).unwrap();
+        assert_eq!(mint.supply_on_l1.unwrap(), old_supply_l1 + increase_by);
+
         assert_eq!(
             Err(TokenError::OwnerMismatch.into()),
             do_process_instruction(
-                update_l1_token_supply(&program_id, &mint2_key, &[&mint_key], 90).unwrap(),
+                set_l1_token_supply(&program_id, &mint2_key, &[&mint_key], 90).unwrap(),
                 vec![&mut mint2_account, &mut owner_acc],
             )
         );
@@ -2037,7 +2103,7 @@ mod tests {
         assert_eq!(
             Err(TokenError::NotRebasingMint.into()),
             do_process_instruction(
-                update_l1_token_supply(&program_id, &mint_key, &[&owner_key], 90).unwrap(),
+                set_l1_token_supply(&program_id, &mint_key, &[&owner_key], 90).unwrap(),
                 vec![&mut mint_account, &mut owner_acc],
             )
         );

@@ -9,6 +9,7 @@ use solana_program::{
     program_pack::{IsInitialized, Pack, Sealed},
     pubkey::{Pubkey, PUBKEY_BYTES},
 };
+use crate::error::TokenError;
 
 /// Mint data.
 #[repr(C)]
@@ -154,6 +155,48 @@ impl MintWithRebase {
         }
         src.pack_into_slice(dst);
         Ok(())
+    }
+
+    /// Converts _unrebased_ amount to _rebased_.
+    ///
+    /// _rebased_ = _unrebased_ * _supply_ / _supply_on_l1_
+    pub fn rebased_amount(&self, amount: u64) -> Result<u64, TokenError> {
+        let supply_before = self.supply;
+        let supply_l1_before = self.supply_on_l1.unwrap_or(supply_before);
+
+        let is_ratio_1 = supply_l1_before == supply_before;
+        let rebased_amount = if supply_l1_before != 0 && supply_before != 0 && !is_ratio_1 {
+            let amount_minted_u128 = (amount as u128)
+                .checked_mul(supply_before as u128)
+                .ok_or(TokenError::Overflow)?
+                .checked_div(supply_l1_before as u128)
+                .expect("checked supply_l1_before != 0; qed");
+            u64::try_from(amount_minted_u128).map_err(|_| TokenError::Overflow)?
+        } else {
+            amount
+        };
+        Ok(rebased_amount)
+    }
+
+    /// Converts _rebased_ amount to _unrebased_.
+    ///
+    /// _unrebased_ = _rebased_ * _supply_on_l1_ / _supply_
+    pub fn unrebased_amount(&self, amount: u64) -> Result<u64, TokenError> {
+        let supply_before = self.supply;
+        let supply_l1_before = self.supply_on_l1.unwrap_or(supply_before);
+
+        let is_ratio_1 = supply_l1_before == supply_before;
+        let unbased_amount = if supply_before != 0 && supply_l1_before != 0 && !is_ratio_1 {
+            let amount_minted_u128 = (amount as u128)
+                .checked_mul(supply_l1_before as u128)
+                .ok_or(TokenError::Overflow)?
+                .checked_div(supply_before as u128)
+                .expect("checked supply_before != 0; qed");
+            u64::try_from(amount_minted_u128).map_err(|_| TokenError::Overflow)?
+        } else {
+            amount
+        };
+        Ok(unbased_amount)
     }
 }
 impl Sealed for MintWithRebase {}
