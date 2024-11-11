@@ -494,6 +494,7 @@ pub enum TokenInstruction<'a> {
         /// The new token supply of the mint on l1.
         l1_token_supply: u64,
     },
+    /// Increase the token supply of the mint on l1.
     IncreaseL1TokenSupply {
         /// Additional token supply to mint on l1.
         additional_l1_token_supply: u64,
