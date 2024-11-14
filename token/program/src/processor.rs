@@ -599,6 +599,10 @@ impl Processor {
                 let amount_minted = mint.rebased_amount(amount)?;
 
                 if amount_minted == 0 {
+                    if amount == 0 {
+                        msg!("No tokens are minted, but the instruction is valid");
+                        return Ok(());
+                    }
                     return Err(TokenError::ZeroRebasedAmount.into());
                 }
 
@@ -710,6 +714,10 @@ impl Processor {
                 let amount_burned = mint.rebased_amount(amount)?;
 
                 if amount_burned == 0 {
+                    if amount == 0 {
+                        msg!("No tokens are burned, but the instruction is valid");
+                        return Ok(());
+                    }
                     return Err(TokenError::ZeroRebasedAmount.into());
                 }
 
@@ -7186,6 +7194,16 @@ mod tests {
             vec![&mut mint_account],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn foo() {
+        // u128;
+        // U256::
+        let amount = 123_4567; // 123.4567
+        let share = 200_0000 / 234_6432; // 0.852357963 = 0
+        let amount = (share * amount) / 10_u64.pow(4);
+        dbg!(amount_to_ui_amount_string_trimmed(amount, 4));
     }
 
     #[test]
