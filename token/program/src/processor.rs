@@ -30,7 +30,7 @@ impl Processor {
         mint_authority: Pubkey,
         freeze_authority: COption<Pubkey>,
         rent_sysvar_account: bool,
-        l1_token_supply: Option<u64>,
+        l1_rewards: Option<u64>,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
         let mint_info = next_account_info(account_info_iter)?;
@@ -55,7 +55,7 @@ impl Processor {
         mint.decimals = decimals;
         mint.is_initialized = true;
         mint.freeze_authority = freeze_authority;
-        mint.supply_on_l1 = l1_token_supply.into();
+        mint.total_rewards_on_l1 = l1_rewards.into();
 
         MintWithRebase::pack_maybe_not_rebase(mint, &mut mint_info.data.borrow_mut())?;
 
@@ -594,29 +594,7 @@ impl Processor {
             Self::check_account_owner(program_id, destination_account_info)?;
         }
 
-        let amount_minted = match mint.supply_on_l1 {
-            COption::Some(supply_l1_before) => {
-                let amount_minted = mint.rebased_amount(amount)?;
-
-                if amount_minted == 0 {
-                    if amount == 0 {
-                        msg!("No tokens are minted, but the instruction is valid");
-                        return Ok(());
-                    }
-                    return Err(TokenError::ZeroRebasedAmount.into());
-                }
-
-                mint.supply_on_l1 = Some(
-                    supply_l1_before
-                        .checked_add(amount)
-                        .ok_or(TokenError::Overflow)?,
-                )
-                .into();
-
-                amount_minted
-            }
-            _ => amount,
-        };
+        let amount_minted = mint.rebased_amount(amount)?;
 
         destination_account.amount = destination_account
             .amount
@@ -709,29 +687,7 @@ impl Processor {
             Self::check_account_owner(program_id, mint_info)?;
         }
 
-        let amount_burned = match mint.supply_on_l1 {
-            COption::Some(supply_l1_before) => {
-                let amount_burned = mint.rebased_amount(amount)?;
-
-                if amount_burned == 0 {
-                    if amount == 0 {
-                        msg!("No tokens are burned, but the instruction is valid");
-                        return Ok(());
-                    }
-                    return Err(TokenError::ZeroRebasedAmount.into());
-                }
-
-                mint.supply_on_l1 = Some(
-                    supply_l1_before
-                        .checked_sub(amount)
-                        .ok_or(TokenError::Overflow)?,
-                )
-                .into();
-
-                amount_burned
-            }
-            _ => amount,
-        };
+        let amount_burned = mint.rebased_amount(amount)?;
         source_account.amount = source_account
             .amount
             .checked_sub(amount_burned)
@@ -898,7 +854,7 @@ impl Processor {
         let mint = MintWithRebase::unpack_maybe_not_rebase(&mint_info.data.borrow_mut())
             .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
 
-        let ui_amount = if mint.supply_on_l1.is_some() {
+        let ui_amount = if mint.total_rewards_on_l1.is_some() {
             let converted_amount = mint.unrebased_amount(amount)?;
             amount_to_ui_amount_string_trimmed(converted_amount, mint.decimals)
         } else {
@@ -906,10 +862,10 @@ impl Processor {
         };
 
         msg!(
-            "Amount to UI amount: {} original: {} with share price {:?}",
+            "Amount to UI amount: {} original: {} with share price, total rewards: {:?}",
             ui_amount,
             amount,
-            mint.supply_on_l1
+            mint.total_rewards_on_l1
         );
 
         set_return_data(&ui_amount.into_bytes());
@@ -930,25 +886,25 @@ impl Processor {
             .map_err(|_| Into::<ProgramError>::into(TokenError::InvalidMint))?;
 
         let amount = try_ui_amount_into_amount::<u64>(ui_amount.to_string(), mint.decimals)?;
-        let amount = if mint.supply_on_l1.is_some() {
+        let amount = if mint.total_rewards_on_l1.is_some() {
             mint.rebased_amount(amount)?
         } else {
             amount
         };
 
         msg!(
-            "Amount to UI amount: {} original: {} with share price {:?}",
+            "Amount to UI amount: {} original: {} with share price, total rewards {:?}",
             ui_amount,
             amount,
-            mint.supply_on_l1
+            mint.total_rewards_on_l1
         );
 
         set_return_data(&(amount).to_le_bytes());
         Ok(())
     }
 
-    /// Updates the share price of the token mint
-    pub fn process_update_l1_token_supply(
+    /// Updates the rewards amount
+    pub fn process_update_l1_token_rewards(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         value: u64,
@@ -977,22 +933,22 @@ impl Processor {
             COption::None => return Err(TokenError::FixedSupply.into()),
         }
 
-        let l1_token_supply = mint.supply_on_l1.ok_or(TokenError::NotRebasingMint)?;
+        let l1_rewards = mint.total_rewards_on_l1.ok_or(TokenError::NotRebasingMint)?;
 
         if increase {
             msg!(
-                "Increasing value by {} from {}",
+                "Increasing total rewards by {} from {}",
                 value,
-                l1_token_supply
+                l1_rewards
             );
-            mint.supply_on_l1 = Some(l1_token_supply + value).into();
+            mint.total_rewards_on_l1 = Some(l1_rewards + value).into();
         } else {
             msg!(
-                "Setting value to {} from {}",
+                "Setting total rewards to {} from {}",
                 value,
-                l1_token_supply
+                l1_rewards
             );
-            mint.supply_on_l1 = value.into();
+            mint.total_rewards_on_l1 = value.into();
         }
 
         MintWithRebase::pack(mint, &mut mint_info.data.borrow_mut())?;
@@ -1129,13 +1085,13 @@ impl Processor {
                 msg!("Instruction: UiAmountToAmount");
                 Self::process_ui_amount_to_amount(program_id, accounts, ui_amount)
             }
-            TokenInstruction::SetL1TokenSupply { l1_token_supply } => {
-                msg!("Instruction: SetL1TokenSupply");
-                Self::process_update_l1_token_supply(program_id, accounts, l1_token_supply, false)
+            TokenInstruction::SetL1TokenRewards { l1_token_rewards: l1_token_supply } => {
+                msg!("Instruction: SetL1TokenRewards");
+                Self::process_update_l1_token_rewards(program_id, accounts, l1_token_supply, false)
             }
-            TokenInstruction::IncreaseL1TokenSupply { additional_l1_token_supply } => {
-                msg!("Instruction: IncreaseL1TokenSupply");
-                Self::process_update_l1_token_supply(program_id, accounts, additional_l1_token_supply, true)
+            TokenInstruction::IncreaseL1TokenRewards { additional_l1_token_rewards: additional_l1_token_supply } => {
+                msg!("Instruction: IncreaseL1TokenRewards");
+                Self::process_update_l1_token_rewards(program_id, accounts, additional_l1_token_supply, true)
             }
         }
     }
@@ -1610,7 +1566,7 @@ mod tests {
         .unwrap();
         let mint = MintWithRebase::unpack_unchecked(&mint2_account.data).unwrap();
         assert_eq!(mint.freeze_authority, COption::Some(owner_key));
-        assert_eq!(mint.supply_on_l1, COption::Some(0));
+        assert_eq!(mint.total_rewards_on_l1, COption::Some(0));
     }
 
     #[test]
@@ -2073,10 +2029,10 @@ mod tests {
         .unwrap();
         let mint = MintWithRebase::unpack_unchecked(&mint2_account.data).unwrap();
         assert_eq!(mint.freeze_authority, COption::Some(owner_key));
-        assert_eq!(mint.supply_on_l1, COption::Some(0));
+        assert_eq!(mint.total_rewards_on_l1, COption::Some(0));
 
         do_process_instruction(
-            set_l1_token_supply(&program_id, &mint2_key, &[&owner_key], 110).unwrap(),
+            set_l1_token_rewards(&program_id, &mint2_key, &[&owner_key], 110).unwrap(),
             vec![&mut mint2_account, &mut owner_acc],
         )
         .unwrap();
@@ -2084,26 +2040,26 @@ mod tests {
         assert_eq!(
             Ok(()),
             do_process_instruction(
-                set_l1_token_supply(&program_id, &mint2_key, &[&owner_key], 90).unwrap(),
+                set_l1_token_rewards(&program_id, &mint2_key, &[&owner_key], 90).unwrap(),
                 vec![&mut mint2_account, &mut owner_acc],
             )
         );
 
         let mint = MintWithRebase::unpack_unchecked(&mint2_account.data).unwrap();
-        let old_supply_l1 = mint.supply_on_l1.unwrap();
+        let old_rewards_l1 = mint.total_rewards_on_l1.unwrap();
         let increase_by = 10;
         do_process_instruction(
-            increase_l1_token_supply(&program_id, &mint2_key, &[&owner_key], increase_by).unwrap(),
+            increase_l1_token_rewards(&program_id, &mint2_key, &[&owner_key], increase_by).unwrap(),
             vec![&mut mint2_account, &mut owner_acc],
         )
         .unwrap();
         let mint = MintWithRebase::unpack_unchecked(&mint2_account.data).unwrap();
-        assert_eq!(mint.supply_on_l1.unwrap(), old_supply_l1 + increase_by);
+        assert_eq!(mint.total_rewards_on_l1.unwrap(), old_rewards_l1 + increase_by);
 
         assert_eq!(
             Err(TokenError::OwnerMismatch.into()),
             do_process_instruction(
-                set_l1_token_supply(&program_id, &mint2_key, &[&mint_key], 90).unwrap(),
+                set_l1_token_rewards(&program_id, &mint2_key, &[&mint_key], 90).unwrap(),
                 vec![&mut mint2_account, &mut owner_acc],
             )
         );
@@ -2111,7 +2067,7 @@ mod tests {
         assert_eq!(
             Err(TokenError::NotRebasingMint.into()),
             do_process_instruction(
-                set_l1_token_supply(&program_id, &mint_key, &[&owner_key], 90).unwrap(),
+                set_l1_token_rewards(&program_id, &mint_key, &[&owner_key], 90).unwrap(),
                 vec![&mut mint_account, &mut owner_acc],
             )
         );

@@ -3,6 +3,7 @@
 use crate::instruction::MAX_SIGNERS;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use num_enum::TryFromPrimitive;
+use num_traits::CheckedAdd;
 use solana_program::{
     program_error::ProgramError,
     program_option::COption,
@@ -117,8 +118,8 @@ pub struct MintWithRebase {
     pub is_initialized: bool,
     /// Optional authority to freeze token accounts.
     pub freeze_authority: COption<Pubkey>,
-    /// total supply of tokens on l1 (should always be more than supply)
-    pub supply_on_l1: COption<u64>,
+    /// Total rewards amount of tokens on l1
+    pub total_rewards_on_l1: COption<u64>,
 }
 impl MintWithRebase {
     /// Unchecked unpack into MintWithRebase potentially ignoring `supply_on_l1` field (if the account size is
@@ -159,17 +160,19 @@ impl MintWithRebase {
 
     /// Converts _unrebased_ amount to _rebased_.
     ///
-    /// _rebased_ = _unrebased_ * _supply_ / _supply_on_l1_
+    /// _rebased_ = _unrebased_ * _supply_ / (_supply_ + _total_rewards_on_l1_)
     pub fn rebased_amount(&self, amount: u64) -> Result<u64, TokenError> {
-        let supply_before = self.supply;
-        let supply_l1_before = self.supply_on_l1.unwrap_or(supply_before);
+        let supply = self.supply;
+        let supply_l1 = self.total_rewards_on_l1.unwrap_or(0)
+            .checked_add(supply)
+            .ok_or(TokenError::Overflow)?;
 
-        let is_ratio_1 = supply_l1_before == supply_before;
-        let rebased_amount = if supply_l1_before != 0 && supply_before != 0 && !is_ratio_1 {
+        let is_ratio_1 = supply_l1 == supply;
+        let rebased_amount = if supply != 0 && !is_ratio_1 {
             let amount_minted_u128 = (amount as u128)
-                .checked_mul(supply_before as u128)
+                .checked_mul(supply as u128)
                 .ok_or(TokenError::Overflow)?
-                .checked_div(supply_l1_before as u128)
+                .checked_div(supply_l1 as u128)
                 .expect("checked supply_l1_before != 0; qed");
             u64::try_from(amount_minted_u128).map_err(|_| TokenError::Overflow)?
         } else {
@@ -180,17 +183,19 @@ impl MintWithRebase {
 
     /// Converts _rebased_ amount to _unrebased_.
     ///
-    /// _unrebased_ = _rebased_ * _supply_on_l1_ / _supply_
+    /// _unrebased_ = _rebased_ * (_supply_ + _total_rewards_on_l1_) / _supply_
     pub fn unrebased_amount(&self, amount: u64) -> Result<u64, TokenError> {
-        let supply_before = self.supply;
-        let supply_l1_before = self.supply_on_l1.unwrap_or(supply_before);
+        let supply = self.supply;
+        let supply_l1 = self.total_rewards_on_l1.unwrap_or(0)
+            .checked_add(supply)
+            .ok_or(TokenError::Overflow)?;
 
-        let is_ratio_1 = supply_l1_before == supply_before;
-        let unbased_amount = if supply_before != 0 && supply_l1_before != 0 && !is_ratio_1 {
+        let is_ratio_1 = supply_l1 == supply;
+        let unbased_amount = if supply != 0 && !is_ratio_1 {
             let amount_minted_u128 = (amount as u128)
-                .checked_mul(supply_l1_before as u128)
+                .checked_mul(supply_l1 as u128)
                 .ok_or(TokenError::Overflow)?
-                .checked_div(supply_before as u128)
+                .checked_div(supply as u128)
                 .expect("checked supply_before != 0; qed");
             u64::try_from(amount_minted_u128).map_err(|_| TokenError::Overflow)?
         } else {
@@ -221,7 +226,7 @@ impl Pack for MintWithRebase {
             _ => return Err(ProgramError::InvalidAccountData),
         };
         let freeze_authority = unpack_coption_key(freeze_authority)?;
-        let supply_on_l1 = if src.len() == Self::LEN {
+        let total_rewards_on_l1 = if src.len() == Self::LEN {
             let src = array_ref![src, Mint::LEN, 8];
             let supply_on_l1 = u64::from_le_bytes(*src);
             COption::Some(supply_on_l1)
@@ -234,7 +239,7 @@ impl Pack for MintWithRebase {
             decimals,
             is_initialized,
             freeze_authority,
-            supply_on_l1,
+            total_rewards_on_l1,
         })
     }
     fn pack_into_slice(&self, dst: &mut [u8]) {
@@ -252,16 +257,16 @@ impl Pack for MintWithRebase {
             decimals,
             is_initialized,
             ref freeze_authority,
-            ref supply_on_l1,
+            ref total_rewards_on_l1,
         } = self;
         pack_coption_key(mint_authority, mint_authority_dst);
         *supply_dst = supply.to_le_bytes();
         decimals_dst[0] = decimals;
         is_initialized_dst[0] = is_initialized as u8;
         pack_coption_key(freeze_authority, freeze_authority_dst);
-        if let COption::Some(supply_on_l1) = supply_on_l1 {
+        if let COption::Some(total_rewards_on_l1) = total_rewards_on_l1 {
             let supply_on_l1_dst = array_mut_ref![dst, Mint::LEN, 8];
-            *supply_on_l1_dst = supply_on_l1.to_le_bytes();
+            *supply_on_l1_dst = total_rewards_on_l1.to_le_bytes();
         } else {
             assert_eq!(dst.len(), Mint::LEN);
         }
