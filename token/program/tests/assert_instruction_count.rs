@@ -124,7 +124,7 @@ async fn update_l1_token_supply() {
     .unwrap();
 
     let transaction = Transaction::new_signed_with_payer(
-        &[instruction::set_l1_token_rewards(
+        &[instruction::set_l1_token_supply(
             &id(),
             &mint.pubkey(),
             &[&owner.pubkey()],
