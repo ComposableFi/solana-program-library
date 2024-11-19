@@ -1579,6 +1579,26 @@ pub fn increase_l1_token_supply(
     })
 }
 
+/// Creates a `UpdateNativeness` instruction
+pub fn update_nativeness(
+    token_program_id: &Pubkey,
+    accs_pubkeys: &[&Pubkey],
+) -> Result<Instruction, ProgramError> {
+    check_program_account(token_program_id)?;
+
+    let mut accounts = vec![];
+    for pk in accs_pubkeys.iter() {
+        accounts.push(AccountMeta::new(**pk, false));
+    }
+
+    Ok(Instruction {
+        program_id: *token_program_id,
+        accounts,
+        data: TokenInstruction::UpdateNativeness.pack(),
+    })
+}
+
+
 /// Utility function that checks index is between MIN_SIGNERS and MAX_SIGNERS
 pub fn is_valid_signer_index(index: usize) -> bool {
     (MIN_SIGNERS..=MAX_SIGNERS).contains(&index)
