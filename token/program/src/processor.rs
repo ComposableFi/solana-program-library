@@ -999,6 +999,7 @@ impl Processor {
         Ok(())
     }
 
+    /// Updates nativeness of the account
     pub fn process_update_nativeness(
         _program_id: &Pubkey,
         accounts: &[AccountInfo],

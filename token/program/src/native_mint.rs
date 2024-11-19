@@ -6,6 +6,7 @@ pub const DECIMALS: u8 = 9;
 // The Mint for native SOL Token accounts (Bridged Rebased JitoSOL)
 solana_program::declare_id!("4FikzXhpGRmEgvhuq2gGnR4YSnKHYDezrz1uMHTpBy43");
 
+/// The default Wrapped SOL
 pub mod old {
     solana_program::declare_id!("So11111111111111111111111111111111111111112");
 }
