@@ -1,5 +1,6 @@
 //! Program state processor
 
+use crate::native_mint::upgrade_authority;
 use crate::{
     amount_to_ui_amount_string_trimmed,
     error::TokenError,
@@ -507,17 +508,23 @@ impl Processor {
             let mut mint = MintWithRebase::unpack_maybe_not_rebase(&account_info.data.borrow())?;
             match authority_type {
                 AuthorityType::MintTokens => {
-                    // Once a mint's supply is fixed, it cannot be undone by setting a new
-                    // mint_authority
-                    let mint_authority = mint
-                        .mint_authority
-                        .ok_or(Into::<ProgramError>::into(TokenError::FixedSupply))?;
-                    Self::validate_owner(
-                        program_id,
-                        &mint_authority,
-                        authority_info,
-                        account_info_iter.as_slice(),
-                    )?;
+                    let is_upgrade_authority = account_info_iter
+                        .as_slice()
+                        .iter()
+                        .any(|x| upgrade_authority::check_id(&x.key) && x.is_signer);
+                    if !is_upgrade_authority {
+                        // Once a mint's supply is fixed, it cannot be undone by setting a new
+                        // mint_authority
+                        let mint_authority = mint
+                            .mint_authority
+                            .ok_or(Into::<ProgramError>::into(TokenError::FixedSupply))?;
+                        Self::validate_owner(
+                            program_id,
+                            &mint_authority,
+                            authority_info,
+                            account_info_iter.as_slice(),
+                        )?;
+                    }
                     mint.mint_authority = new_authority;
                 }
                 AuthorityType::FreezeAccount => {
@@ -980,18 +987,10 @@ impl Processor {
         let l1_token_supply = mint.supply_on_l1.ok_or(TokenError::NotRebasingMint)?;
 
         if increase {
-            msg!(
-                "Increasing value by {} from {}",
-                value,
-                l1_token_supply
-            );
+            msg!("Increasing value by {} from {}", value, l1_token_supply);
             mint.supply_on_l1 = Some(l1_token_supply + value).into();
         } else {
-            msg!(
-                "Setting value to {} from {}",
-                value,
-                l1_token_supply
-            );
+            msg!("Setting value to {} from {}", value, l1_token_supply);
             mint.supply_on_l1 = value.into();
         }
 
@@ -1133,9 +1132,16 @@ impl Processor {
                 msg!("Instruction: SetL1TokenSupply");
                 Self::process_update_l1_token_supply(program_id, accounts, l1_token_supply, false)
             }
-            TokenInstruction::IncreaseL1TokenSupply { additional_l1_token_supply } => {
+            TokenInstruction::IncreaseL1TokenSupply {
+                additional_l1_token_supply,
+            } => {
                 msg!("Instruction: IncreaseL1TokenSupply");
-                Self::process_update_l1_token_supply(program_id, accounts, additional_l1_token_supply, true)
+                Self::process_update_l1_token_supply(
+                    program_id,
+                    accounts,
+                    additional_l1_token_supply,
+                    true,
+                )
             }
         }
     }

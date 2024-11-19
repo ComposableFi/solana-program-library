@@ -6,6 +6,10 @@ pub const DECIMALS: u8 = 9;
 // The Mint for native SOL Token accounts
 solana_program::declare_id!("So11111111111111111111111111111111111111112");
 
+pub(crate) mod upgrade_authority {
+    solana_program::declare_id!("9jXmF189CdSe9uG7ur5k8yvkkWYZQaVPwZPL5P1znMC6");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
