@@ -499,6 +499,8 @@ pub enum TokenInstruction<'a> {
         /// Additional token supply to mint on l1.
         additional_l1_token_supply: u64,
     },
+    /// Update nativeness
+    UpdateNativeness,
     // Any new variants also need to be added to program-2022 `TokenInstruction`, so that the
     // latter remains a superset of this instruction set. New variants also need to be added to
     // token/js/src/instructions/types.ts to maintain @solana/spl-token compatibility
@@ -623,6 +625,9 @@ impl<'a> TokenInstruction<'a> {
                 Self::IncreaseL1TokenSupply {
                     additional_l1_token_supply,
                 }
+            }
+            28 => {
+                Self::UpdateNativeness
             }
             _ => return Err(TokenError::InvalidInstruction.into()),
         })
@@ -751,6 +756,9 @@ impl<'a> TokenInstruction<'a> {
             Self::IncreaseL1TokenSupply { additional_l1_token_supply } => {
                 buf.push(27);
                 buf.extend_from_slice(&additional_l1_token_supply.to_le_bytes());
+            }
+            &Self::UpdateNativeness => {
+                buf.push(28);
             }
         };
         buf

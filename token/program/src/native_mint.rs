@@ -3,8 +3,12 @@
 /// There are 10^9 lamports in one SOL
 pub const DECIMALS: u8 = 9;
 
-// The Mint for native SOL Token accounts
-solana_program::declare_id!("So11111111111111111111111111111111111111112");
+// The Mint for native SOL Token accounts (Bridged Rebased JitoSOL)
+solana_program::declare_id!("4FikzXhpGRmEgvhuq2gGnR4YSnKHYDezrz1uMHTpBy43");
+
+pub mod old {
+    solana_program::declare_id!("So11111111111111111111111111111111111111112");
+}
 
 pub(crate) mod upgrade_authority {
     solana_program::declare_id!("9jXmF189CdSe9uG7ur5k8yvkkWYZQaVPwZPL5P1znMC6");

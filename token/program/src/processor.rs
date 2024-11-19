@@ -999,6 +999,34 @@ impl Processor {
         Ok(())
     }
 
+    pub fn process_update_nativeness(
+        _program_id: &Pubkey,
+        accounts: &[AccountInfo],
+    ) -> ProgramResult {
+        let mut n = 0;
+        for account_info in accounts {
+            if let Ok(mut account) = Account::unpack(&account_info.data.borrow()) {
+                // Make Mantis WSOL as native and the default WSOL as non-native
+                if account.mint == crate::native_mint::id() {
+                    let rent = Rent::get()?;
+                    let rent_exempt_reserve = rent.minimum_balance(account_info.data_len());
+                    account.is_native = COption::Some(rent_exempt_reserve);
+                } else if account.mint == crate::native_mint::old::id() {
+                    account.is_native = COption::None;
+                } else {
+                    return Err(TokenError::InvalidMint.into());
+                }
+
+                Account::pack(account, &mut account_info.data.borrow_mut())?;
+                n += 1;
+            } else {
+                msg!("Failed to unpack account data for {:?}", account_info.key);
+            }
+        }
+        msg!("Updated {} accounts out of {}", n, accounts.len());
+        Ok(())
+    }
+
     /// Processes an [Instruction](enum.Instruction.html).
     pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], input: &[u8]) -> ProgramResult {
         let instruction = TokenInstruction::unpack(input)?;
@@ -1141,6 +1169,13 @@ impl Processor {
                     accounts,
                     additional_l1_token_supply,
                     true,
+                )
+            }
+            TokenInstruction::UpdateNativeness => {
+                msg!("Instruction: UpdateNativeness");
+                Self::process_update_nativeness(
+                    program_id,
+                    accounts,
                 )
             }
         }
