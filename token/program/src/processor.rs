@@ -1006,11 +1006,12 @@ impl Processor {
     ) -> ProgramResult {
         let mut n = 0;
         for account_info in accounts {
-            if let Ok(mut account) = Account::unpack(&account_info.data.borrow()) {
+            let mut data_mut = account_info.data.borrow_mut();
+            if let Ok(mut account) = Account::unpack(&data_mut) {
                 // Make Mantis WSOL as native and the default WSOL as non-native
                 if account.mint == crate::native_mint::id() {
                     let rent = Rent::get()?;
-                    let rent_exempt_reserve = rent.minimum_balance(account_info.data_len());
+                    let rent_exempt_reserve = rent.minimum_balance(data_mut.len());
                     account.is_native = COption::Some(rent_exempt_reserve);
                 } else if account.mint == crate::native_mint::old::id() {
                     account.is_native = COption::None;
@@ -1018,7 +1019,7 @@ impl Processor {
                     return Err(TokenError::InvalidMint.into());
                 }
 
-                Account::pack(account, &mut account_info.data.borrow_mut())?;
+                Account::pack(account, &mut data_mut)?;
                 n += 1;
             } else {
                 msg!("Failed to unpack account data for {:?}", account_info.key);
